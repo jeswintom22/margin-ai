@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "test:e2e:mock": "playwright test -c playwright.mock.config.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "glyphs": "node scripts/build-glyphs.mjs"
   },
   "dependencies": {
     "idb": "^8.0.3",
@@ -31,6 +32,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.4.3",
     "fake-indexeddb": "^6.2.6",
+    "hersheytext": "2.0.0",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^5.0.5"
