@@ -34,7 +34,7 @@ export default function Sidebar(p: Props) {
   };
 
   return (
-    <aside className="flex w-64 shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 max-sm:absolute max-sm:z-20 max-sm:h-full max-sm:shadow-xl">
+    <aside className="flex w-60 shrink-0 flex-col border-r border-neutral-200/80 bg-neutral-50/50 max-sm:absolute max-sm:z-20 max-sm:h-full max-sm:bg-neutral-50 max-sm:shadow-xl">
       <div className="flex items-center justify-between px-3 py-2">
         <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Notebooks</h2>
       </div>

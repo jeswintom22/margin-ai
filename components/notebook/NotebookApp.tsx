@@ -1,21 +1,30 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNotebook } from "@/hooks/useNotebook";
+import { useVoiceAssistant } from "@/hooks/useVoiceAssistant";
 import Toolbar from "@/components/notebook/Toolbar";
 import Sidebar from "@/components/notebook/Sidebar";
 import PaperCanvas from "@/components/canvas/PaperCanvas";
-import AssistantPanel from "@/components/notebook/AssistantPanel";
-import TutorPanel from "@/components/notebook/TutorPanel";
+import VoiceDock from "@/components/notebook/VoiceDock";
 import { buildNotebookContext } from "@/lib/ai/contextBuilder";
 import { captureRegionPNG } from "@/lib/drawing/capture";
 import { readPdfFile, pdfToPages, PdfImportError } from "@/lib/pdf/importPdf";
 
 export default function NotebookApp() {
   const nb = useNotebook();
+  const voice = useVoiceAssistant(nb, {
+    capture: () => (nb.page ? captureRegionPNG(nb.page, nb.selectedIds, { rect: nb.selectionRect ?? undefined }) : null),
+    getContext: () =>
+      nb.notebook && nb.page
+        ? buildNotebookContext(nb.notebook, { pageId: nb.page.id, selectedStrokeIds: nb.selectedIds })
+        : null,
+  });
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [assistantOpen, setAssistantOpen] = useState(false);
-  const [thinking, setThinking] = useState(false);
+  const voiceToggle = useRef(voice.toggle);
+  useEffect(() => {
+    voiceToggle.current = voice.toggle;
+  }, [voice.toggle]);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const importPdf = async (file: File) => {
@@ -49,6 +58,9 @@ export default function NotebookApp() {
         }
       } else if (e.key === "Escape") {
         nb.setSelectedIds([]);
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "m") {
+        e.preventDefault();
+        voiceToggle.current();
       } else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
         const k = e.key.toLowerCase();
         if (k === "p") nb.setTool("pen");
@@ -100,8 +112,6 @@ export default function NotebookApp() {
         onExport={nb.exportNotebook}
         onImportPdf={importPdf}
         pdfBusy={pdfBusy}
-        assistantOpen={assistantOpen}
-        onToggleAssistant={() => setAssistantOpen((o) => !o)}
         aiCount={aiLayerOnPage?.elements.length ?? 0}
         aiVisible={aiLayerOnPage?.visible ?? true}
         onToggleAI={() => nb.setAILayerVisible(!(aiLayerOnPage?.visible ?? true))}
@@ -162,10 +172,10 @@ export default function NotebookApp() {
               <button type="button" aria-label="Dismiss" onClick={() => setPdfError(null)} className="rounded px-1 hover:bg-red-100">✕</button>
             </div>
           )}
-          {thinking && (
-            <div role="status" className="pointer-events-none absolute left-1/2 top-3 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full border border-blue-200 bg-white/95 px-3 py-1 text-xs text-blue-800 shadow-sm">
-              <span className="h-3 w-3 animate-spin rounded-full border-2 border-blue-300 border-t-blue-700" aria-hidden />
-              AI tutor is thinking…
+          {voice.state === "thinking" && (
+            <div role="status" className="pointer-events-none absolute left-1/2 top-3 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full border border-neutral-200 bg-white/95 px-3 py-1 text-xs text-neutral-600 shadow-sm">
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-600" aria-hidden />
+              Thinking…
             </div>
           )}
           {nb.page ? (
@@ -191,45 +201,30 @@ export default function NotebookApp() {
           )}
         </main>
 
-        {assistantOpen && (
-          <AssistantPanel
-            onClose={() => setAssistantOpen(false)}
-            onInsert={(doc) => nb.insertAnswer(doc)}
-            getContext={() =>
-              nb.notebook && nb.page
-                ? buildNotebookContext(nb.notebook, { pageId: nb.page.id, selectedStrokeIds: nb.selectedIds })
-                : null
-            }
-            hasSelection={nb.selectedIds.length > 0}
-            captureSelection={() => (nb.page ? captureRegionPNG(nb.page, nb.selectedIds, { rect: nb.selectionRect ?? undefined }) : null)}
-            tutor={
-              <TutorPanel
-                hasSelection={nb.selectedIds.length > 0}
-                captureSelection={() => (nb.page ? captureRegionPNG(nb.page, nb.selectedIds, { rect: nb.selectionRect ?? undefined }) : null)}
-                onMarks={(check, lineCount) => nb.insertCheckMarks(check, nb.selectedIds, lineCount)}
-                onPlace={(doc) => nb.insertAnswer(doc, nb.selectedIds)}
-                onRemoveGroup={nb.removeAIGroup}
-                onThinking={setThinking}
-              />
-            }
-          />
-        )}
+        <VoiceDock
+          supported={voice.supported}
+          on={voice.on}
+          state={voice.state}
+          heard={voice.heard}
+          toast={voice.toast}
+          toggle={voice.toggle}
+        />
       </div>
 
       {nb.selectedIds.length > 0 && (
-        <div className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-3 rounded-full border border-neutral-300 bg-white px-4 py-2 text-sm shadow-lg">
-          <span>{nb.selectedIds.length} stroke{nb.selectedIds.length > 1 ? "s" : ""} selected</span>
+        <div className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-3 rounded-full border border-neutral-200 bg-white/95 px-4 py-1.5 text-xs text-neutral-600 shadow-md backdrop-blur-sm">
+          <span>{nb.selectedIds.length} stroke{nb.selectedIds.length > 1 ? "s" : ""} selected — say a command or:</span>
           <button
             type="button"
             onClick={nb.deleteSelected}
-            className="rounded-md bg-red-600 px-2.5 py-1 text-xs text-white hover:bg-red-700"
+            className="rounded-full bg-red-600 px-2.5 py-1 font-medium text-white hover:bg-red-700"
           >
             Delete
           </button>
           <button
             type="button"
             onClick={() => nb.setSelectedIds([])}
-            className="rounded-md px-2 py-1 text-xs text-neutral-600 hover:bg-neutral-100"
+            className="rounded-full px-2 py-1 hover:bg-neutral-100"
           >
             Clear
           </button>

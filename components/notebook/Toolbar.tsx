@@ -28,8 +28,6 @@ type Props = {
   onExport: () => void;
   onImportPdf: (file: File) => void;
   pdfBusy: boolean;
-  assistantOpen: boolean;
-  onToggleAssistant: () => void;
   /** Number of AI elements on the current page; AI controls show only when > 0. */
   aiCount: number;
   aiVisible: boolean;
@@ -51,8 +49,8 @@ function ToolButton({
       title={title}
       disabled={disabled}
       onClick={onClick}
-      className={`flex h-9 min-w-9 items-center justify-center gap-1 rounded-md px-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-600
-        ${active ? "bg-neutral-900 text-white" : "text-neutral-700 hover:bg-neutral-200"}
+      className={`flex h-8 min-w-8 items-center justify-center gap-1 rounded-md px-1.5 text-sm focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-600
+        ${active ? "bg-neutral-900 text-white" : "text-neutral-600 hover:bg-neutral-100"}
         ${disabled ? "opacity-40 cursor-not-allowed" : ""}`}
     >
       {children}
@@ -70,7 +68,7 @@ const statusText: Record<SaveStatus, string> = {
 
 export default function Toolbar(p: Props) {
   return (
-    <header className="flex h-14 shrink-0 items-center gap-1 border-b border-neutral-200 bg-white px-2 sm:px-3">
+    <header className="flex h-12 shrink-0 items-center gap-1 border-b border-neutral-200/80 bg-white/80 px-2 backdrop-blur-sm sm:px-3">
       <button
         type="button"
         aria-label="Toggle sidebar"
@@ -123,7 +121,7 @@ export default function Toolbar(p: Props) {
 
       <select
         aria-label="Stroke width"
-        className="ml-1 h-8 rounded-md border border-neutral-300 bg-white px-1 text-xs text-neutral-700"
+        className="ml-1 h-8 rounded-md border-0 bg-transparent px-1 text-xs text-neutral-600 hover:bg-neutral-100"
         value={p.strokeWidth}
         onChange={(e) => p.onWidth(Number(e.target.value))}
       >
@@ -134,7 +132,7 @@ export default function Toolbar(p: Props) {
 
       <select
         aria-label="Paper style"
-        className="h-8 rounded-md border border-neutral-300 bg-white px-1 text-xs text-neutral-700"
+        className="h-8 rounded-md border-0 bg-transparent px-1 text-xs text-neutral-600 hover:bg-neutral-100"
         value={p.paperStyle}
         onChange={(e) => p.onPaperStyle(e.target.value as PaperStyle)}
       >
@@ -152,7 +150,7 @@ export default function Toolbar(p: Props) {
             onClick={p.onToggleAI}
             aria-pressed={p.aiVisible}
             title={p.aiVisible ? "Hide AI content on this page" : "Show AI content on this page"}
-            className="h-9 rounded-md border border-blue-200 px-2 text-xs text-blue-700 hover:bg-blue-50"
+            className="h-8 rounded-md px-2 text-xs text-blue-600 hover:bg-blue-50"
           >
             {p.aiVisible ? "AI: shown" : "AI: hidden"}
           </button>
@@ -160,7 +158,7 @@ export default function Toolbar(p: Props) {
             type="button"
             onClick={p.onClearAI}
             title="Remove AI content from this page (undoable; your ink is untouched)"
-            className="h-9 rounded-md border border-neutral-300 px-2 text-xs text-neutral-700 hover:bg-neutral-100"
+            className="h-8 rounded-md px-2 text-xs text-neutral-600 hover:bg-neutral-100"
           >
             Clear AI
           </button>
@@ -170,14 +168,14 @@ export default function Toolbar(p: Props) {
       <button
         type="button"
         onClick={p.onAddPage}
-        className="h-9 rounded-md border border-neutral-300 px-2 text-xs text-neutral-700 hover:bg-neutral-100"
+        className="h-8 rounded-md px-2 text-xs text-neutral-600 hover:bg-neutral-100"
         title="Add page"
       >
         + Page
       </button>
       <label
         title="Import a PDF: each page becomes a notebook page with the PDF as a locked background"
-        className={`hidden h-9 cursor-pointer items-center rounded-md border border-neutral-300 px-2 text-xs text-neutral-700 hover:bg-neutral-100 sm:flex ${p.pdfBusy ? "pointer-events-none opacity-50" : ""}`}
+        className={`hidden h-9 cursor-pointer items-center rounded-md px-2 text-xs text-neutral-600 hover:bg-neutral-100 sm:flex ${p.pdfBusy ? "pointer-events-none opacity-50" : ""}`}
       >
         {p.pdfBusy ? "Importing…" : "Import PDF"}
         <input
@@ -196,25 +194,11 @@ export default function Toolbar(p: Props) {
       <button
         type="button"
         onClick={p.onExport}
-        className="hidden h-9 rounded-md border border-neutral-300 px-2 text-xs text-neutral-700 hover:bg-neutral-100 sm:block"
+        className="hidden h-8 rounded-md px-2 text-xs text-neutral-600 hover:bg-neutral-100 sm:block"
         title="Export notebook as JSON"
       >
         Export
       </button>
-      <button
-        type="button"
-        onClick={p.onToggleAssistant}
-        aria-pressed={p.assistantOpen}
-        className={`h-9 rounded-md border px-2 text-xs ${
-          p.assistantOpen
-            ? "border-neutral-900 bg-neutral-900 text-white"
-            : "border-neutral-300 text-neutral-700 hover:bg-neutral-100"
-        }`}
-        title="Toggle assistant panel"
-      >
-        Assistant
-      </button>
-
       <span
         role="status"
         aria-live="polite"
