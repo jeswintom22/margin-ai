@@ -138,7 +138,9 @@ export default function NotebookApp() {
               version={nb.version}
               selectedIds={nb.selectedIds}
               onCommitStroke={nb.commitStroke}
+              onEraseBegin={nb.beginErase}
               onEraseAt={nb.eraseAt}
+              onEraseEnd={nb.endErase}
               onSelectRect={nb.selectInRect}
             />
           ) : (

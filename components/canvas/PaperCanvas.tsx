@@ -4,6 +4,7 @@ import { useEffect, useRef, useCallback } from "react";
 import type { NotebookPage, Point, Stroke } from "@/lib/document/types";
 import { renderPage } from "@/lib/drawing/render";
 import { clientToPage, fitScale } from "@/lib/drawing/coords";
+import { CanvasGesture } from "@/lib/drawing/gesture";
 import type { EditorTool } from "@/lib/document/types";
 import type { Rect } from "@/lib/drawing/geometry";
 
@@ -16,31 +17,45 @@ type Props = {
   version: number;
   selectedIds: string[];
   onCommitStroke: (points: Point[]) => void;
+  onEraseBegin: () => void;
   onEraseAt: (x: number, y: number, radius: number) => boolean;
+  onEraseEnd: () => void;
   onSelectRect: (rect: Rect) => void;
 };
 
 const ERASER_RADIUS = 14;
 
 /**
- * Drawing surface. Keeps the in-progress stroke in a ref and repaints on a
- * rAF loop only while drawing, so React never re-renders per pointermove.
+ * Drawing surface. Pointer lifecycle lives in a CanvasGesture state machine;
+ * the in-progress stroke is repainted on a rAF loop only while drawing, so
+ * React never re-renders per pointermove.
  */
 export default function PaperCanvas({
   page, tool, color, strokeWidth, version, selectedIds,
-  onCommitStroke, onEraseAt, onSelectRect,
+  onCommitStroke, onEraseBegin, onEraseAt, onEraseEnd, onSelectRect,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const drawing = useRef(false);
-  const pointerId = useRef<number | null>(null);
-  const points = useRef<Point[]>([]);
-  const erasedDuringDrag = useRef(false);
-  const selectRect = useRef<Rect | null>(null);
-  const selectStart = useRef<Point | null>(null);
-  const strokeStart = useRef(0);
   const raf = useRef(0);
   const dirty = useRef(true);
+
+  // Latest callbacks, read by the gesture's event handlers at event time.
+  const handlers = useRef({ onCommitStroke, onEraseBegin, onEraseAt, onEraseEnd, onSelectRect });
+  useEffect(() => {
+    handlers.current = { onCommitStroke, onEraseBegin, onEraseAt, onEraseEnd, onSelectRect };
+  }, [onCommitStroke, onEraseBegin, onEraseAt, onEraseEnd, onSelectRect]);
+
+  // Created on mount (before any pointer input can arrive); never read during render.
+  const gestureRef = useRef<CanvasGesture | null>(null);
+  useEffect(() => {
+    gestureRef.current = new CanvasGesture({
+      onStrokeCommit: (pts) => handlers.current.onCommitStroke(pts),
+      onEraseBegin: () => handlers.current.onEraseBegin(),
+      onEraseAt: (x, y) => handlers.current.onEraseAt(x, y, ERASER_RADIUS),
+      onEraseEnd: () => handlers.current.onEraseEnd(),
+      onSelectCommit: (r) => handlers.current.onSelectRect(r),
+    });
+  }, []);
   const toolRef = useRef(tool);
   const colorRef = useRef(color);
   const widthRef = useRef(strokeWidth);
@@ -91,13 +106,15 @@ export default function PaperCanvas({
     ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * offsetX, dpr * offsetY);
 
     let inProgress: Stroke | null = null;
-    if (drawing.current && points.current.length > 0 && (toolRef.current === "pen" || toolRef.current === "highlighter")) {
+    const gesture = gestureRef.current;
+    const gtool = gesture?.activeTool;
+    if (gesture?.drawingStroke && gesture.points.length > 0 && (gtool === "pen" || gtool === "highlighter")) {
       inProgress = {
         id: "__live__",
-        points: points.current,
+        points: gesture.points,
         color: colorRef.current,
-        width: toolRef.current === "highlighter" ? widthRef.current * 4 : widthRef.current,
-        tool: toolRef.current,
+        width: gtool === "highlighter" ? widthRef.current * 4 : widthRef.current,
+        tool: gtool,
         author: "user",
       };
     }
@@ -127,7 +144,7 @@ export default function PaperCanvas({
     }
 
     // in-progress selection rect
-    const r = selectRect.current;
+    const r = gesture?.selection;
     if (r) {
       ctx.save();
       ctx.fillStyle = "rgba(59,130,246,0.08)";
@@ -168,85 +185,41 @@ export default function PaperCanvas({
 
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (e.button !== 0 && e.pointerType === "mouse") return;
-    e.currentTarget.setPointerCapture(e.pointerId);
-    pointerId.current = e.pointerId;
-    drawing.current = true;
-    erasedDuringDrag.current = false;
     const p = toPage(e.clientX, e.clientY);
-    p.pressure = e.pointerType === "pen" ? e.pressure || 0.5 : undefined;
-    p.time = 0;
-
-    if (toolRef.current === "eraser") {
-      onEraseAt(p.x, p.y, ERASER_RADIUS);
-      erasedDuringDrag.current = true;
-      dirty.current = true;
-    } else if (toolRef.current === "select") {
-      selectStart.current = p;
-      selectRect.current = { x: p.x, y: p.y, w: 0, h: 0 };
-      dirty.current = true;
-    } else {
-      strokeStart.current = e.nativeEvent.timeStamp;
-      points.current = [p];
-      dirty.current = true;
-    }
+    if (e.pointerType === "pen") p.pressure = e.pressure || 0.5;
+    // Ignored if another gesture is already active (e.g. a resting palm).
+    if (!gestureRef.current?.begin(toolRef.current, e.pointerId, p, e.nativeEvent.timeStamp)) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dirty.current = true;
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!drawing.current || pointerId.current !== e.pointerId) return;
-    const t = toolRef.current;
-
-    if (t === "eraser") {
-      // Use coalesced events for responsive erasing.
-      const events = e.nativeEvent.getCoalescedEvents?.() ?? [e.nativeEvent];
-      for (const ev of events) {
-        const p = toPage(ev.clientX, ev.clientY);
-        onEraseAt(p.x, p.y, ERASER_RADIUS);
-      }
-      dirty.current = true;
-      return;
-    }
-    if (t === "select") {
-      const p = toPage(e.clientX, e.clientY);
-      const s = selectStart.current!;
-      selectRect.current = {
-        x: Math.min(s.x, p.x),
-        y: Math.min(s.y, p.y),
-        w: Math.abs(p.x - s.x),
-        h: Math.abs(p.y - s.y),
-      };
-      dirty.current = true;
-      return;
-    }
-
+    // Coalesced events give every sub-frame position for smooth input.
     const events = e.nativeEvent.getCoalescedEvents?.() ?? [e.nativeEvent];
-    for (const ev of events) {
+    const samples = events.map((ev) => {
       const p = toPage(ev.clientX, ev.clientY);
-      // ignore tiny movements to reduce point density
-      const last = points.current[points.current.length - 1];
-      if (last && Math.hypot(p.x - last.x, p.y - last.y) < 0.6) continue;
-      if (ev.pointerType === "pen") p.pressure = ev.pressure || 0.5;
-      p.time = ev.timeStamp - strokeStart.current;
-      points.current.push(p);
-    }
-    dirty.current = true;
+      return {
+        x: p.x,
+        y: p.y,
+        pressure: ev.pointerType === "pen" ? ev.pressure || 0.5 : undefined,
+        stamp: ev.timeStamp,
+      };
+    });
+    if (gestureRef.current?.move(e.pointerId, samples)) dirty.current = true;
   };
 
-  const endStroke = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!drawing.current || pointerId.current !== e.pointerId) return;
-    drawing.current = false;
-    pointerId.current = null;
-    const t = toolRef.current;
-    if (t === "pen" || t === "highlighter") {
-      const pts = points.current;
-      points.current = [];
-      if (pts.length) onCommitStroke(pts);
-    } else if (t === "select") {
-      const r = selectRect.current;
-      selectRect.current = null;
-      selectStart.current = null;
-      if (r && r.w > 2 && r.h > 2) onSelectRect(r);
-    }
-    dirty.current = true;
+  const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (gestureRef.current?.end(e.pointerId, "up")) dirty.current = true;
+  };
+
+  const onPointerCancel = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (gestureRef.current?.end(e.pointerId, "cancel")) dirty.current = true;
+  };
+
+  // Fired automatically after pointerup (no-op then) and when capture is lost
+  // without pointerup (commits the finished gesture instead of dropping it).
+  const onLostPointerCapture = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (gestureRef.current?.end(e.pointerId, "lostCapture")) dirty.current = true;
   };
 
   return (
@@ -261,8 +234,9 @@ export default function PaperCanvas({
         }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
-        onPointerUp={endStroke}
-        onPointerCancel={endStroke}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}
+        onLostPointerCapture={onLostPointerCapture}
         onContextMenu={(e) => e.preventDefault()}
         aria-label="Notebook page canvas"
       />
