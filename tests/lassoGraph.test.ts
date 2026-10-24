@@ -3,7 +3,7 @@ import { pointInPolygon, strokeInLasso, polygonBounds } from "@/lib/drawing/geom
 import { CanvasGesture, closeLasso, LASSO_CLOSE_DIST, type GestureEvents } from "@/lib/drawing/gesture";
 import { sampleExpression, sampleCurves, autoYRange, niceTicks, MAX_SAMPLES } from "@/lib/math/graph";
 import { toUnicodeMath } from "@/lib/math/unicodeMath";
-import { layoutAnswer, placeNearSelection, measureText, LAYOUT } from "@/lib/ai/answerLayout";
+import { layoutAnswer, layoutFitted, placeNearSelection, placeOnPage, measureText, LAYOUT } from "@/lib/ai/answerLayout";
 import { answerDocumentSchema, type AnswerDocument } from "@/lib/ai/answerSchema";
 import { createStroke, PAGE_WIDTH } from "@/lib/document/types";
 
@@ -142,6 +142,28 @@ describe("placement beside the selection", () => {
     const ys = r.pages[0].filter((e) => e.type === "text").map((e) => (e.type === "text" ? e.y : 0));
     expect(Math.min(...ys)).toBeGreaterThan(160);
     expect(r.pages[0].every((e) => e.type !== "text" || e.x >= 100)).toBe(true);
+  });
+
+  it("shrinks a long answer to stay on the same page instead of making a new one", () => {
+    const long = answerDocumentSchema.parse({
+      schemaVersion: 1, title: "Long",
+      blocks: Array.from({ length: 8 }, (_, i) => ({ id: `b${i}`, type: "paragraph", text: "word ".repeat(30) })),
+    }) as AnswerDocument;
+    // Selection near the bottom: full-size answer would overflow the page.
+    const r = placeNearSelection(long, { minX: 60, minY: 640, maxX: 400, maxY: 700 });
+    expect(r.pages).toHaveLength(1);
+    const texts = r.pages[0].filter((e) => e.type === "text");
+    expect(Math.max(...texts.map((e) => (e.type === "text" ? e.y : 0)))).toBeLessThanOrEqual(1123 - LAYOUT.marginBottom);
+    expect(Math.min(...texts.map((e) => (e.type === "text" ? e.size : 99)))).toBeLessThan(LAYOUT.bodySize); // shrunk
+  });
+
+  it("only spills onto new pages when even the smallest scale can't fit", () => {
+    const huge = answerDocumentSchema.parse({
+      schemaVersion: 1, title: "Huge",
+      blocks: Array.from({ length: 40 }, (_, i) => ({ id: `b${i}`, type: "paragraph", text: "word ".repeat(40) })),
+    }) as AnswerDocument;
+    expect(layoutFitted(huge, { x: 56, y: 900, width: 680 })).toBeNull();
+    expect(placeOnPage(huge, { startY: 900 }).pages.length).toBeGreaterThan(1);
   });
 
   it("stacks under earlier answers instead of drawing over them", () => {

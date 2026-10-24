@@ -21,7 +21,7 @@ import {
 } from "@/lib/document/types";
 import { NotebookHistory, type PageOperation, apply, applyInsertion, removeStrokes, EraseTransaction } from "@/lib/history/history";
 import type { ImportedPdfPage } from "@/lib/pdf/importPdf";
-import { layoutAnswer, placeNearSelection, type Placement } from "@/lib/ai/answerLayout";
+import { placeNearSelection, placeOnPage, type Placement } from "@/lib/ai/answerLayout";
 import { layoutCheckMarks, unionBounds } from "@/lib/ai/markLayout";
 import { strokeBounds } from "@/lib/drawing/geometry";
 import type { AnswerDocument } from "@/lib/ai/answerSchema";
@@ -507,13 +507,17 @@ export function useNotebook() {
           e.type === "rect" ? e.y + e.h : e.type === "line" ? Math.max(e.y1, e.y2) : e.y;
         // Bottom of everything already on the page — AI answers *and* the
         // user's ink — so new answers never overlap either.
-        const inkBottom = userLayer(page).strokes.map((s) => strokeBounds(s).maxY);
+        // Stray strokes outside the paper don't count as occupying it.
+        const inkBottom = userLayer(page).strokes
+          .map(strokeBounds)
+          .filter((b) => b.maxY > 0 && b.minY < page.height && b.maxX > 0 && b.minX < page.width)
+          .map((b) => Math.min(b.maxY, page.height));
         const maxY = Math.max(0, ...ai.elements.map(bottom), ...inkBottom);
         const flowOpts = { pageWidth: page.width, pageHeight: page.height, startY: maxY || undefined };
         const nearStrokes = near?.length ? page.layers.flatMap((l) => l.strokes).filter((s) => near.includes(s.id)) : [];
         const { pages: laidOut, groupId, placement } = nearStrokes.length
           ? placeNearSelection(doc, unionBounds(nearStrokes.map(strokeBounds)), flowOpts)
-          : { ...layoutAnswer(doc, flowOpts), placement: "flow" as const };
+          : placeOnPage(doc, flowOpts);
         const startIdx = nb.pages.indexOf(page);
         const appends: { pageId: string; layerId: string; elements: PageElement[] }[] = [
           { pageId: page.id, layerId: ai.id, elements: laidOut[0] },

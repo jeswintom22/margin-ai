@@ -1,10 +1,10 @@
 import { test, expect, type Page } from "@playwright/test";
 
-/** Deterministic multi-page answer: enough paragraphs to overflow one page. */
+/** Deterministic multi-page answer: too long to fit one page even when shrunk. */
 const LONG_ANSWER = {
   schemaVersion: 1,
   title: "Mock answer",
-  blocks: Array.from({ length: 30 }, (_, i) => ({
+  blocks: Array.from({ length: 70 }, (_, i) => ({
     id: `b${i + 1}`,
     type: "paragraph",
     text: `Paragraph ${i + 1}: ` + "lorem ipsum dolor sit amet ".repeat(6).trim(),

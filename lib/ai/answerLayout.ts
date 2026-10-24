@@ -400,13 +400,72 @@ export function layoutAnswer(
   return { pages, groupId };
 }
 
+/** Scales tried (largest first) to keep an answer on the current page. */
+export const FIT_SCALES = [1, 0.9, 0.8, 0.7, 0.6] as const;
+
+function scaleElement(e: PageElement, s: number, ox: number, oy: number): PageElement {
+  const X = (x: number) => ox + (x - ox) * s;
+  const Y = (y: number) => oy + (y - oy) * s;
+  switch (e.type) {
+    case "text":
+      return { ...e, x: X(e.x), y: Y(e.y), size: e.size * s };
+    case "line":
+      return { ...e, x1: X(e.x1), y1: Y(e.y1), x2: X(e.x2), y2: Y(e.y2), width: e.width != null ? e.width * s : e.width };
+    case "rect":
+      return { ...e, x: X(e.x), y: Y(e.y), w: e.w * s, h: e.h * s };
+  }
+}
+
+/**
+ * Lay out `doc` inside `region` on ONE page, shrinking it (down to 60%) if
+ * that's what it takes to fit above the bottom margin. The answer is laid out
+ * in a virtually larger region (width/s, height/s) and then scaled by s about
+ * the region's top-left, so wrapping stays natural. Returns null when even the
+ * smallest scale overflows.
+ */
+export function layoutFitted(
+  doc: AnswerDocument,
+  region: { x: number; y: number; width: number },
+  opts: { pageWidth?: number; pageHeight?: number } = {}
+): (LayoutResult & { scale: number }) | null {
+  const pageH = opts.pageHeight ?? PAGE_HEIGHT;
+  const y0 = Math.max(LAYOUT.marginTop, region.y);
+  const limit = pageH - LAYOUT.marginBottom;
+  if (limit - y0 < 40) return null;
+  for (const s of FIT_SCALES) {
+    // Virtual page whose bottom margin maps to the real one after scaling.
+    const vPageH = y0 + (limit - y0) / s + LAYOUT.marginBottom;
+    const r = layoutAnswer(doc, { ...opts, pageHeight: vPageH, region: { x: region.x, y: y0, width: region.width / s } });
+    if (r.pages.length !== 1) continue;
+    const pages = s === 1 ? r.pages : [r.pages[0].map((e) => scaleElement(e, s, region.x, y0))];
+    return { pages, groupId: r.groupId, scale: s };
+  }
+  return null;
+}
+
 export type Placement = "below" | "right" | "flow";
 const MIN_REGION_WIDTH = 220;
 
 /**
- * Place an answer beside the student's work: directly below the selection if
- * it fits on the same page, else to its right, else the normal flow (below
- * existing content, continuing onto new pages).
+ * Place an answer below everything already on the page (`startY`), shrinking
+ * it to stay on this page if needed; only when even 60% won't fit does it
+ * flow onto new pages.
+ */
+export function placeOnPage(
+  doc: AnswerDocument,
+  opts: { pageWidth?: number; pageHeight?: number; startY?: number } = {}
+): LayoutResult & { placement: Placement } {
+  const pageW = opts.pageWidth ?? PAGE_WIDTH;
+  const y = opts.startY && opts.startY > LAYOUT.marginTop ? opts.startY + LAYOUT.blockGap : LAYOUT.marginTop;
+  const fit = layoutFitted(doc, { x: LAYOUT.marginX, y, width: pageW - LAYOUT.marginX * 2 }, opts);
+  return fit ? { pages: fit.pages, groupId: fit.groupId, placement: "flow" } : { ...layoutAnswer(doc, opts), placement: "flow" };
+}
+
+/**
+ * Place an answer beside the student's work, always preferring the same page:
+ * directly below the selection, else to its right, else below everything on
+ * the page — each attempt may shrink the answer (to 60%) to fit. Only if none
+ * fit does it continue onto new pages.
  */
 export function placeNearSelection(
   doc: AnswerDocument,
@@ -420,18 +479,17 @@ export function placeNearSelection(
   // under them instead of drawing on top.
   const occupied = opts.startY ?? 0;
   const crowded = occupied > sel.minY;
-  const below = {
-    x: Math.max(LAYOUT.marginX, sel.minX),
-    y: Math.max(sel.maxY + 16, crowded ? occupied + LAYOUT.blockGap : 0),
+  // Align with the work, unless that leaves a cramped column.
+  const bx = sel.minX > pageW * 0.4 ? LAYOUT.marginX : Math.max(LAYOUT.marginX, sel.minX);
+  const below = { x: bx, y: Math.max(sel.maxY + 16, crowded ? occupied + LAYOUT.blockGap : 0) };
+  const pick = (region: { x: number; y: number; width: number }, placement: Placement) => {
+    if (region.width < MIN_REGION_WIDTH) return null;
+    const r = layoutFitted(doc, region, opts);
+    return r ? { pages: r.pages, groupId: r.groupId, placement } : null;
   };
-  if (right - below.x >= MIN_REGION_WIDTH) {
-    const r = layoutAnswer(doc, { ...opts, region: { ...below, width: right - below.x } });
-    if (r.pages.length === 1) return { ...r, placement: "below" };
-  }
-  const side = { x: sel.maxX + 20, y: sel.minY };
-  if (!crowded && right - side.x >= MIN_REGION_WIDTH) {
-    const r = layoutAnswer(doc, { ...opts, region: { ...side, width: right - side.x } });
-    if (r.pages.length === 1) return { ...r, placement: "right" };
-  }
-  return { ...layoutAnswer(doc, opts), placement: "flow" };
+  return (
+    pick({ ...below, width: right - below.x }, "below") ??
+    (!crowded ? pick({ x: sel.maxX + 20, y: sel.minY, width: right - sel.maxX - 20 }, "right") : null) ??
+    placeOnPage(doc, opts)
+  );
 }
