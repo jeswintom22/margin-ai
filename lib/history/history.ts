@@ -1,5 +1,5 @@
 import { newId, type Notebook, type NotebookPage, type PageElement, type Stroke, type EraserOperation } from "@/lib/document/types";
-import { strokeHitsPoint } from "@/lib/drawing/geometry";
+import { splitStrokeByCircle } from "@/lib/drawing/geometry";
 
 /**
  * Operation-based undo/redo, scoped per page.
@@ -9,7 +9,11 @@ import { strokeHitsPoint } from "@/lib/drawing/geometry";
  * A new edit clears the redo stack (standard linear-history semantics).
  */
 
-export type RemovedStroke = { layerId: string; index: number; stroke: Stroke };
+/**
+ * A stroke removed from a layer. `replacements` are the fragments that took its
+ * place (partial erase); they occupy `index` onward in the layer after removal.
+ */
+export type RemovedStroke = { layerId: string; index: number; stroke: Stroke; replacements?: Stroke[] };
 
 export type Operation =
   | { type: "addStroke"; layerId: string; stroke: Stroke }
@@ -87,10 +91,11 @@ export function apply(page: NotebookPage, op: Operation) {
     const ids = new Set(op.removed.map((r) => r.element.id));
     layer.elements = layer.elements.filter((e) => !ids.has(e.id));
   } else if (op.type === "eraseStrokes") {
-    // Remove strokes by id (order-independent), then record the eraser op.
-    const ids = new Set(op.removed.map((r) => r.stroke.id));
-    for (const layer of page.layers) {
-      layer.strokes = layer.strokes.filter((s) => !ids.has(s.id));
+    // Replay removals in order, swapping in any fragments where the stroke was.
+    for (const r of op.removed) {
+      const layer = layerOf(page, r.layerId);
+      const i = layer.strokes.findIndex((s) => s.id === r.stroke.id);
+      if (i >= 0) layer.strokes.splice(i, 1, ...(r.replacements ?? []));
     }
     page.eraserOperations.push(op.eraserOp);
   }
@@ -133,6 +138,10 @@ export function revert(page: NotebookPage, op: Operation) {
     for (let i = op.removed.length - 1; i >= 0; i--) {
       const r = op.removed[i];
       const layer = layerOf(page, r.layerId);
+      if (r.replacements?.length) {
+        const ids = new Set(r.replacements.map((s) => s.id));
+        layer.strokes = layer.strokes.filter((s) => !ids.has(s.id));
+      }
       layer.strokes.splice(Math.min(r.index, layer.strokes.length), 0, r.stroke);
     }
     const i = page.eraserOperations.findIndex((e) => e.id === op.eraserOp.id);
@@ -173,36 +182,45 @@ export function removeStrokes(page: NotebookPage, ids: ReadonlySet<string>): Rem
 
 /**
  * Transaction for one continuous eraser gesture (pointerdown → moves → end).
- * Strokes are removed immediately for live visual feedback, but history is only
- * recorded once, at commit. A stroke already removed in this gesture is never
- * recorded twice, and committing an empty gesture returns null — no op, no
- * eraserOperations entry, nothing to undo.
+ * The eraser is a pixel-style eraser: only the part of a stroke under the
+ * eraser circle is removed, and the remaining runs are kept as new fragment
+ * strokes in the same layer position. Changes apply immediately for live
+ * feedback, but history is recorded once, at commit, as an exact replayable
+ * log. Committing an empty gesture returns null — no op, nothing to undo.
  */
 export class EraseTransaction {
   private removed: RemovedStroke[] = [];
-  private ids = new Set<string>();
+  /** Fragments created during this gesture (not pre-existing strokes). */
+  private created = new Set<string>();
+  /** Pre-existing strokes touched by this gesture, for provenance. */
+  private targets: string[] = [];
 
   constructor(readonly pageId: string) {}
 
   get strokeCount() {
-    return this.removed.length;
+    return this.targets.length;
   }
 
-  /** Remove newly-hit strokes near (x, y). Returns how many were removed. */
+  /** Erase the ink under the circle at (x, y). Returns how many strokes were cut. */
   eraseAt(page: NotebookPage, x: number, y: number, radius: number): number {
     if (page.id !== this.pageId) return 0;
-    const hits = new Set<string>();
+    let changed = 0;
     for (const layer of page.layers) {
-      for (const s of layer.strokes) {
-        if (!this.ids.has(s.id) && strokeHitsPoint(s, x, y, radius)) hits.add(s.id);
+      // Backwards, so splicing fragments in never shifts indices still to visit.
+      for (let i = layer.strokes.length - 1; i >= 0; i--) {
+        const s = layer.strokes[i];
+        const pieces = splitStrokeByCircle(s, x, y, radius);
+        if (!pieces) continue;
+        const replacements = pieces.map((points) => ({ ...s, id: newId(), points }));
+        layer.strokes.splice(i, 1, ...replacements);
+        this.removed.push({ layerId: layer.id, index: i, stroke: s, replacements });
+        if (this.created.has(s.id)) this.created.delete(s.id);
+        else this.targets.push(s.id);
+        for (const f of replacements) this.created.add(f.id);
+        changed++;
       }
     }
-    if (!hits.size) return 0;
-    for (const r of removeStrokes(page, hits)) {
-      this.ids.add(r.stroke.id);
-      this.removed.push(r);
-    }
-    return hits.size;
+    return changed;
   }
 
   /**
@@ -214,7 +232,7 @@ export class EraseTransaction {
     if (page.id !== this.pageId || this.removed.length === 0) return null;
     const eraserOp: EraserOperation = {
       id: newId(),
-      targetStrokeIds: this.removed.map((r) => r.stroke.id),
+      targetStrokeIds: this.targets.slice(),
       at: Date.now(),
     };
     page.eraserOperations.push(eraserOp);

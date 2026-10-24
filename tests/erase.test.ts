@@ -27,28 +27,60 @@ describe("EraseTransaction", () => {
     expect(op).not.toBeNull();
     h.record(op!);
 
-    expect(userLayer(page).strokes.map((s) => s.id)).toEqual([c.id]);
+    const ids = () => userLayer(page).strokes.map((s) => s.id);
+    // a and b are each split into a left and right fragment; c is untouched.
+    const afterErase = ids();
+    expect(afterErase).toHaveLength(5);
+    expect(afterErase).not.toContain(a.id);
+    expect(afterErase).not.toContain(b.id);
+    expect(afterErase[4]).toBe(c.id);
     expect(page.eraserOperations).toHaveLength(1);
+    expect(page.eraserOperations[0].targetStrokeIds.sort()).toEqual([a.id, b.id].sort());
     expect(h.canUndo).toBe(true);
 
     h.undo(page);
-    expect(userLayer(page).strokes.map((s) => s.id)).toEqual([a.id, b.id, c.id]);
+    expect(ids()).toEqual([a.id, b.id, c.id]);
     expect(page.eraserOperations).toHaveLength(0);
 
     h.redo(page);
-    expect(userLayer(page).strokes.map((s) => s.id)).toEqual([c.id]);
+    expect(ids()).toEqual(afterErase);
     expect(page.eraserOperations).toHaveLength(1);
   });
 
-  it("does not record the same stroke twice within a gesture", () => {
-    const a = mk([{ x: 0, y: 0 }, { x: 50, y: 0 }]);
+  it("erases only the part of a stroke under the eraser", () => {
+    const a = mk([{ x: 0, y: 0 }, { x: 100, y: 0 }], 2);
     const page = pageWith(a);
     const txn = new EraseTransaction(page.id);
-    expect(txn.eraseAt(page, 25, 0, 10)).toBe(1);
-    expect(txn.eraseAt(page, 25, 0, 10)).toBe(0); // already removed
-    const op = txn.commit(page);
-    expect(op).not.toBeNull();
-    expect(op!.type === "eraseStrokes" && op!.removed).toHaveLength(1);
+    expect(txn.eraseAt(page, 50, 0, 10)).toBe(1);
+    const [left, right] = userLayer(page).strokes;
+    // Cut at radius + width/2 = 11 on either side of x=50.
+    expect(left.points.map((p) => p.x)).toEqual([0, 39]);
+    expect(right.points.map((p) => p.x)).toEqual([61, 100]);
+    expect(left.color).toBe(a.color);
+    expect(left.width).toBe(a.width);
+  });
+
+  it("removes a stroke entirely when the eraser covers all of it", () => {
+    const page = pageWith(mk([{ x: 0, y: 0 }, { x: 4, y: 0 }]));
+    const txn = new EraseTransaction(page.id);
+    expect(txn.eraseAt(page, 2, 0, 10)).toBe(1);
+    expect(userLayer(page).strokes).toHaveLength(0);
+  });
+
+  it("re-erasing a fragment in the same gesture undoes back to the original", () => {
+    const a = mk([{ x: 0, y: 0 }, { x: 100, y: 0 }]);
+    const page = pageWith(a);
+    const h = new PageHistory();
+    const txn = new EraseTransaction(page.id);
+    expect(txn.eraseAt(page, 50, 0, 10)).toBe(1);
+    expect(txn.eraseAt(page, 50, 0, 10)).toBe(0); // nothing left under the eraser
+    expect(txn.eraseAt(page, 80, 0, 10)).toBe(1); // cuts the right fragment
+    expect(userLayer(page).strokes).toHaveLength(3);
+    const op = txn.commit(page)!;
+    expect(op.eraserOp.targetStrokeIds).toEqual([a.id]);
+    h.record(op);
+    h.undo(page);
+    expect(userLayer(page).strokes.map((s) => s.id)).toEqual([a.id]);
   });
 
   it("committing an empty gesture returns null and mutates nothing", () => {

@@ -79,8 +79,9 @@ test("A: drawing, undo/redo, erase and undo erase", async ({ page }) => {
   await redo(page);
   await expect(canvas(page)).toHaveAttribute("data-user-strokes", "1");
 
+  // The eraser removes only the ink under it: the line splits into two pieces.
   await eraseThrough(page);
-  await expect(canvas(page)).toHaveAttribute("data-user-strokes", "0");
+  await expect(canvas(page)).toHaveAttribute("data-user-strokes", "2");
   await undo(page);
   await expect(canvas(page)).toHaveAttribute("data-user-strokes", "1");
 });

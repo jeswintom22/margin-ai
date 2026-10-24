@@ -33,6 +33,70 @@ export function strokeHitsPoint(stroke: Stroke, x: number, y: number, radius: nu
   return false;
 }
 
+function lerpPoint(a: Point, b: Point, t: number): Point {
+  const p: Point = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+  if (a.pressure !== undefined && b.pressure !== undefined) p.pressure = a.pressure + (b.pressure - a.pressure) * t;
+  if (a.time !== undefined && b.time !== undefined) p.time = a.time + (b.time - a.time) * t;
+  return p;
+}
+
+/** Parameter interval [t0, t1] ⊂ [0, 1] of segment ab lying strictly inside the circle, or null. */
+function segmentInsideCircle(a: Point, b: Point, cx: number, cy: number, r: number): [number, number] | null {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const fx = a.x - cx, fy = a.y - cy;
+  const A = dx * dx + dy * dy;
+  const C = fx * fx + fy * fy - r * r;
+  if (A === 0) return C < 0 ? [0, 1] : null;
+  const B = 2 * (fx * dx + fy * dy);
+  const disc = B * B - 4 * A * C;
+  if (disc <= 0) return null;
+  const sq = Math.sqrt(disc);
+  const t0 = Math.max(0, (-B - sq) / (2 * A));
+  const t1 = Math.min(1, (-B + sq) / (2 * A));
+  return t1 - t0 > 1e-9 ? [t0, t1] : null;
+}
+
+/**
+ * Cut the part of `stroke` covered by an eraser circle at (x, y). Returns the
+ * remaining point runs (possibly empty: fully erased), or null when the eraser
+ * doesn't touch the stroke. Cuts are interpolated exactly on the circle edge,
+ * widened by half the stroke width so no ink is left under the eraser.
+ */
+export function splitStrokeByCircle(stroke: Stroke, x: number, y: number, radius: number): Point[][] | null {
+  if (!strokeHitsPoint(stroke, x, y, radius)) return null;
+  const pts = stroke.points;
+  const r = radius + stroke.width / 2;
+  if (pts.length === 1) return [];
+  const pieces: Point[][] = [];
+  let cur: Point[] = [];
+  let cut = false;
+  const flush = () => {
+    if (cur.length > 1) pieces.push(cur);
+    cur = [];
+  };
+  if (Math.hypot(pts[0].x - x, pts[0].y - y) >= r) cur.push(pts[0]);
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1];
+    const hit = segmentInsideCircle(a, b, x, y, r);
+    if (!hit) {
+      cur.push(b);
+      continue;
+    }
+    cut = true;
+    if (hit[0] > 0) cur.push(lerpPoint(a, b, hit[0]));
+    flush();
+    if (hit[1] < 1) cur = [lerpPoint(a, b, hit[1]), b];
+  }
+  flush();
+  return cut ? pieces.filter((p) => polylineLength(p) >= 0.5) : null;
+}
+
+function polylineLength(pts: Point[]): number {
+  let len = 0;
+  for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+  return len;
+}
+
 export function strokeBounds(stroke: Stroke): { minX: number; minY: number; maxX: number; maxY: number } {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   const pad = stroke.width / 2;
