@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { NotebookStore } from "@/hooks/useNotebook";
 import { parseIntent } from "@/lib/ai/commands";
 import {
@@ -60,33 +60,9 @@ export function useVoiceAssistant(nb: NotebookStore, opts: Opts) {
   const speakerRef = useRef<Speaker | null>(null);
   const restartTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const say = useCallback((kind: VoiceToast["kind"], text: string) => setToast({ kind, text }), []);
-
-  const speak = useCallback((text: string, done: () => void) => {
-    speakerRef.current ??= createSpeaker();
-    const sp = speakerRef.current;
-    // No voices (headless test browsers) → skip speech; utterances would
-    // never end and would leave the assistant deaf forever.
-    if (!sp || window.speechSynthesis.getVoices().length === 0) { done(); return; }
-    speaking.current = true;
-    // Mute the recognizer while the AI talks so it can't hear itself; the
-    // finish callback reopens it once the utterance ends.
-    recRef.current?.abort();
-    recRef.current = null;
-    setState((s) => (s === "off" ? s : "speaking"));
-    // If onend never fires (headless/audioless browsers), don't stay deaf.
-    const finish = () => {
-      if (!speaking.current) return;
-      speaking.current = false;
-      done();
-      startRec();
-    };
-    const watchdog = setTimeout(finish, 30_000);
-    sp.speak(text, 1, () => {
-      clearTimeout(watchdog);
-      finish();
-    });
-  }, []);
+  function say(kind: VoiceToast["kind"], text: string) {
+    setToast({ kind, text });
+  }
 
   // Plain function (not useCallback): the recognizer's onEnd re-calls it to
   // restart, and a named function declaration self-references cleanly.
@@ -103,7 +79,7 @@ export function useVoiceAssistant(nb: NotebookStore, opts: Opts) {
           recRef.current = null;
           // The browser drops the mic periodically; restart while toggled on.
           if (onRef.current) {
-            restartTimer.current = setTimeout(startRec, RESTART_MS);
+            restartTimer.current = setTimeout(() => startRec(), RESTART_MS);
           }
         },
         onError: (kind) => {
@@ -127,6 +103,32 @@ export function useVoiceAssistant(nb: NotebookStore, opts: Opts) {
     } catch {
       recRef.current = null;
     }
+  }
+
+  function speak(text: string, done: () => void) {
+    speakerRef.current ??= createSpeaker();
+    const sp = speakerRef.current;
+    // No voices (headless test browsers) → skip speech; utterances would
+    // never end and would leave the assistant deaf forever.
+    if (!sp || window.speechSynthesis.getVoices().length === 0) { done(); return; }
+    speaking.current = true;
+    // Mute the recognizer while the AI talks so it can't hear itself; the
+    // finish callback reopens it once the utterance ends.
+    recRef.current?.abort();
+    recRef.current = null;
+    setState((s) => (s === "off" ? s : "speaking"));
+    // If onend never fires (headless/audioless browsers), don't stay deaf.
+    const finish = () => {
+      if (!speaking.current) return;
+      speaking.current = false;
+      done();
+      startRec();
+    };
+    const watchdog = setTimeout(finish, 30_000);
+    sp.speak(text, 1, () => {
+      clearTimeout(watchdog);
+      finish();
+    });
   }
 
   function toggle() {

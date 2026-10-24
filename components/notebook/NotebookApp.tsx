@@ -7,6 +7,7 @@ import Toolbar from "@/components/notebook/Toolbar";
 import Sidebar from "@/components/notebook/Sidebar";
 import PaperCanvas from "@/components/canvas/PaperCanvas";
 import VoiceDock from "@/components/notebook/VoiceDock";
+import StatusBar from "@/components/notebook/StatusBar";
 import { buildNotebookContext } from "@/lib/ai/contextBuilder";
 import { captureRegionPNG } from "@/lib/drawing/capture";
 import { readPdfFile, pdfToPages, PdfImportError } from "@/lib/pdf/importPdf";
@@ -238,6 +239,16 @@ export default function NotebookApp() {
           </button>
         </div>
       )}
+
+      <StatusBar
+        tool={nb.tool}
+        pageIndex={nb.notebook && nb.page ? Math.max(0, nb.notebook.pages.findIndex((x) => x.id === nb.page!.id)) : 0}
+        pageCount={nb.notebook?.pages.length ?? 0}
+        userStrokes={nb.page?.layers.filter((l) => l.author === "user").reduce((n, l) => n + l.strokes.length, 0) ?? 0}
+        aiElements={aiLayerOnPage?.elements.length ?? 0}
+        selected={nb.selectedIds.length}
+        voiceOn={voice.on}
+      />
     </div>
   );
 }
