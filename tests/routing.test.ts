@@ -58,3 +58,21 @@ describe("vision generation", () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).model).toBe("f");
   });
 });
+
+describe("provider-specific image parts", () => {
+  const docJson = JSON.stringify({ schemaVersion: 1, title: "T", blocks: [{ id: "b", type: "paragraph", text: "ok" }] });
+  const ok = () => Promise.resolve(new Response(JSON.stringify({ choices: [{ message: { content: docJson } }] }), { status: 200 }));
+  const imagePart = async (baseUrl: string) => {
+    const fetchMock = vi.fn().mockImplementation(ok);
+    const cfg: LLMConfig = { apiKey: "k", baseUrl, model: "m", visionModel: "v", timeoutMs: 1000 };
+    await generateAnswer("read", cfg, fetchMock, undefined, { image: `data:image/png;base64,${PNG_1PX}` });
+    return JSON.parse(fetchMock.mock.calls[0][1].body).messages.at(-1).content[1].image_url;
+  };
+
+  it("sends OpenAI's detail hint only to OpenAI; Gemini gets the documented plain shape", async () => {
+    expect(await imagePart("https://api.openai.com/v1")).toHaveProperty("detail", "high");
+    const gemini = await imagePart("https://generativelanguage.googleapis.com/v1beta/openai");
+    expect(gemini).not.toHaveProperty("detail");
+    expect(gemini.url).toMatch(/^data:image\/png;base64,/);
+  });
+});

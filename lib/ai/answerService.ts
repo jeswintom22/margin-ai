@@ -227,7 +227,14 @@ export async function generateAnswer(
               content: image
                 ? [
                     { type: "text", text: question + contextBlock },
-                    { type: "image_url", image_url: { url: `data:${image.mime};base64,${image.base64}`, detail: "high" } },
+                    {
+                      type: "image_url",
+                      // `detail` is an OpenAI-specific hint; other OpenAI-compatible
+                      // providers (e.g. Gemini) get the plain documented shape.
+                      image_url: isOpenAI(config.baseUrl)
+                        ? { url: `data:${image.mime};base64,${image.base64}`, detail: "high" }
+                        : { url: `data:${image.mime};base64,${image.base64}` },
+                    },
                   ]
                 : question + contextBlock,
             } satisfies ChatMessage,
@@ -334,5 +341,13 @@ export function applyDeterministicCheck(doc: AnswerDocument, lines: string[]) {
           return { ...l, status: "error" as const, verification: v, note: l.note ?? "Does not match a deterministic check" };
         return { ...l, verification: v };
       });
+  }
+}
+
+function isOpenAI(baseUrl: string): boolean {
+  try {
+    return new URL(baseUrl).hostname === "api.openai.com";
+  } catch {
+    return false;
   }
 }
