@@ -36,6 +36,9 @@ describe("readLLMConfig", () => {
       expect((e as LLMError).status).toBe(503);
     }
   });
+  it.each(["0", "-1", "NaN", "Infinity", "1.5", "120001"])("rejects unsafe timeout %s", (timeout) => {
+    expect(() => readLLMConfig({ LLM_API_KEY: "k", LLM_TIMEOUT_MS: timeout })).toThrow(/timeout/);
+  });
   it("applies defaults and trims the base URL", () => {
     const c = readLLMConfig({ LLM_API_KEY: "k" });
     expect(c.baseUrl).toBe("https://api.openai.com/v1");
@@ -72,6 +75,14 @@ describe("askLLM", () => {
     await expect(askLLM("q", config, vi.fn().mockRejectedValue(new TypeError("fetch failed")))).rejects.toMatchObject({ status: 502 });
     const timeout = Object.assign(new Error("t"), { name: "TimeoutError" });
     await expect(askLLM("q", config, vi.fn().mockRejectedValue(timeout))).rejects.toMatchObject({ status: 504 });
+  });
+
+  it("maps a timeout while reading the response body to 504", async () => {
+    const response = new Response("{}");
+    vi.spyOn(response, "json").mockRejectedValue(new DOMException("sensitive detail", "AbortError"));
+    await expect(askLLM("q", config, vi.fn().mockResolvedValue(response))).rejects.toMatchObject({
+      status: 504, message: "The AI provider took too long to respond",
+    });
   });
 
   it("rejects empty or malformed responses", async () => {

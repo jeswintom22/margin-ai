@@ -1,5 +1,14 @@
 # Change log
 
+## 2026-10-24T21:59:14+05:30 — API request limits and abuse protection (Bug Fix 4)
+
+- Changed: `app/api/ask/route.ts`, new `lib/ai/requestProtection.ts`, `lib/ai/llm.ts`, `tests/askRoute.test.ts`, `tests/llm.test.ts`, new `tests/requestProtection.test.ts`, `.env.example`, `README.md`, and `AI_USAGE.md`.
+- Why: bound untrusted JSON before parsing/paid calls, prevent unlimited local requests, and fail closed rather than imply process-local counters protect multi-instance production deployments.
+- What: 32 KiB streamed byte cap and declared-length check; 400/413 errors; configurable process-wide local fixed-window bucket (default 10/minute) with 429/Retry-After; production 503 unless external gateway protection is explicitly attested. No forwarded-header identity trust, new service dependencies, or question/exception logging. Error/answer envelope preserved, responses no-store. Validate upstream timeout configuration (1–120000 ms), preserve fetch timeout handling, and map response-body aborts to 504.
+- Production requirement: configure and verify distributed per-client gateway quotas, trusted identity/proxy handling, sanitized JSON throttle responses, and origin lockdown before setting `ASK_EXTERNAL_RATE_LIMIT_ENABLED=true`. The flag does not implement or verify gateway protection. Local fallback is not production abuse protection.
+- Validation: focused `npm test -- tests/askRoute.test.ts tests/llm.test.ts tests/requestProtection.test.ts` passed 40/40; `npm test` passed 111/111 across 11 suites; `npm run typecheck`, `npm run lint`, and `npm run build` passed. First build attempt was blocked by a concurrent build; retry passed without removing locks. Tests mock external fetch/limiter dependencies, use an injected clock for window boundaries, and make no paid API calls. Existing Vite CommonJS/ESM config warning remains. Full checks reflect the shared working tree.
+- Limitations: no gateway exists in repository configuration, so production protection is not complete until deployment integration is verified. Local quota is global per process and resets on restart. Gateway upload deadlines/concurrency limits, authentication, provider budgets/output caps, and distributed-IP abuse remain deployment responsibilities; no user-facing workflow/UI changes.
+
 ## 2026-10-24T21:53:05+05:30 — Correct Devin Hack Kochi event guidance
 
 - Changed: corrected the current event name and AI tool guidance in `.github/pull_request_template.md`, `AGENTS.md`, `AI_USAGE.md`, `CHANGELOG.md`, `README.md`, `RULES.md`, `SUBMISSION.md`.
@@ -27,6 +36,33 @@ Record each meaningful project change during the event, newest first. Update thi
 - Policy: reject malformed/unsupported older versions, give future versions an update instruction, preserve modeled v1 data and existing page defaults, and never rewrite stored data on load. README explains source validation, explicit consecutive steps, output validation after every step, final validation, deterministic transformations, and tests required for v2.
 - Validation: regression run before implementation reproduced 15 failures; targeted document/storage run then passed 29/29. After adding a v1-default compatibility test, `npm test` passed 68/68 across 8 suites; `npm run typecheck` and `npm run build` passed. Targeted ESLint on all four changed TypeScript files passed. `npm run lint` initially failed with five ref/purity errors in concurrently edited `hooks/useNotebook.ts`; a repeat after concurrent edits failed with one ref-access error and one unused-variable warning in `components/canvas/PaperCanvas.tsx`, outside this task. Tests report an existing Vite config CommonJS/ESM warning. Full-suite results reflect concurrent work in the shared tree.
 - Limitations: v1 is the only supported format, so there are no real migration transformations to test yet. Invalid/unsupported records also cause notebook listing to fail rather than being silently skipped. Loads do not persist normalized data. No UI or AI writing changes.
+
+## 2026-10-24T22:00:00+05:30 — Fix eraser history and pointer cancellation
+
+- Changed: new `lib/drawing/gesture.ts` (`CanvasGesture` pointer state machine);
+  `lib/history/history.ts` (new `EraseTransaction`, `removeStrokes`; `revert` restores
+  in reverse removal order); `components/canvas/PaperCanvas.tsx` and
+  `hooks/useNotebook.ts` rewired; `components/notebook/NotebookApp.tsx` prop wiring;
+  new `tests/gesture.test.ts` and `tests/erase.test.ts`.
+- Why: a single eraser drag used to record one history op per pointermove hit, so one
+  gesture needed many undos (Bug A); pointercancel shared the pointerup path and
+  committed incomplete strokes (Bug B).
+- Validation: `tsc --noEmit` clean; `eslint` clean; `vitest` 83/83 pass (15 new);
+  `next build` clean.
+- Limitations: canceling an eraser drag still commits removals already applied (they
+  are complete, undoable operations). lostpointercapture is treated as gesture end,
+  matching pointerup semantics.
+
+## 2026-10-24T21:55:00+05:30 — Serialized autosave and stricter schema validation
+
+- Changed: `lib/storage/autosave.ts` (new `AutoSaver`), `hooks/useNotebook.ts`,
+  `lib/document/schema.ts` (exact version literal, actionable errors),
+  `lib/storage/db.ts` (validates stored documents on load), new/expanded tests.
+- Why: prevent stale in-flight saves from falsely marking the doc saved; surface
+  schema errors on load consistently with import.
+- Validation: `tsc --noEmit` clean; `vitest` 68/68 pass at time of change.
+- Limitations: pagehide/visibilitychange still cannot guarantee the async IndexedDB
+  write completes before the tab closes.
 
 ## 2026-10-24T21:45:00+05:30 — Basic AI assistant panel (text Q&A)
 

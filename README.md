@@ -45,9 +45,9 @@ write solutions onto a user's notes as a separate, non-destructive layer.
 - **Known limitations:** No palm rejection (browsers don't expose reliable palm data);
   eraser removes whole strokes only; multi-tab editing warns but doesn't merge;
   no E2E browser tests yet. Assistant: no conversation memory (each question is
-  independent), exchanges are lost on refresh, no streaming, no rate limiting on
-  `/api/ask` (fine locally, but add it before any public deployment), and answers are
-  not yet inserted onto pages.
+  independent), exchanges are lost on refresh, no streaming, and answers are not yet
+  inserted onto pages. Local request limiting is process-wide only; production requires
+  an external per-client rate-limiting gateway (see below).
 - **Libraries, APIs, and public datasets used:**
   [Next.js](https://nextjs.org), [React](https://react.dev),
   [Tailwind CSS](https://tailwindcss.com), [idb](https://github.com/jakearchibald/idb),
@@ -57,6 +57,49 @@ write solutions onto a user's notes as a separate, non-destructive layer.
   via `LLM_BASE_URL`), used only by the assistant. No datasets.
 
 See [AI_USAGE.md](AI_USAGE.md) for AI assistance and [CHANGELOG.md](CHANGELOG.md) for the development record.
+
+## Assistant request protection and production deployment
+
+`POST /api/ask` still returns `{ answer }` or `{ error }`. Questions remain limited
+to 4,000 characters. Bodies are limited to **32 KiB of UTF-8 bytes**, checked both
+against `Content-Length` and while reading the stream before JSON parsing. Extra
+fields/JSON escaping count toward that limit. Invalid JSON/questions return 400,
+oversized bodies 413, local throttling 429 with `Retry-After` seconds, missing
+protection/configuration 503, upstream failure 502, and upstream timeout 504.
+Responses use `Cache-Control: no-store`; provider bodies, unexpected exceptions,
+and full questions are not logged or included in error responses.
+
+- **Local development:** `ASK_LOCAL_RATE_LIMIT` (default 10) and
+  `ASK_LOCAL_RATE_WINDOW_MS` (default 60000) configure a fixed-window bucket shared
+  by all callers in one process. Both must be positive safe integers. No client IP
+  is inferred: `X-Forwarded-For`, `X-Real-IP`, cookies, and other caller-controlled
+  identity values cannot create fresh buckets. This conservative fallback resets
+  on restart and is **not distributed production protection**. Malformed requests
+  also consume quota. Keep the development server bound to a trusted local network.
+- **Production (`NODE_ENV=production`, including `npm start`):** the route fails
+  closed with 503 unless `ASK_EXTERNAL_RATE_LIMIT_ENABLED=true`. This is an operator
+  attestation, **not a limiter** and not something a request header can enable.
+  Leave it false until a gateway/WAF enforces a configurable per-client quota for
+  every `POST /api/ask` across all instances. Configure quota/window in that gateway
+  (10 requests/minute is a starting point, not a guarantee of an affordable budget).
+  Use authenticated identity where available, or the gateway's actual connection IP;
+  strip/overwrite untrusted forwarding headers and document the proxy trust chain.
+  Block all direct origin/alternate deployment URL access, and verify that varying
+  forwarding headers cannot evade throttling. The gateway must return 429 with a
+  suitable `Retry-After`; configure JSON `{ error }` responses to preserve the UI contract.
+- There is no deployment-specific gateway or shared store configured in this repo.
+  No Redis/database dependency was added. A platform gateway can supply distributed
+  enforcement without one; otherwise design an atomic shared-store limiter and a
+  trustworthy identity integration before enabling production requests. Do not
+  substitute a process-local map on serverless/multi-process deployments.
+- Also configure gateway body/read deadlines, connection/concurrency limits, and
+  provider spending/output-token limits. The app byte cap does not prevent slow
+  uploads or large upstream answers, and fixed windows permit boundary bursts.
+  Anonymous IP quotas can be evaded with multiple IPs and can group users behind NAT.
+- `LLM_TIMEOUT_MS` defaults to 30000 and must be an integer from 1 through 120000.
+  The existing fetch abort deadline covers the upstream response body as well as
+  headers; upstream body aborts now return 504. No real provider calls are needed
+  for tests: route/LLM fetches and limiter dependencies are mocked.
 
 ## Architecture
 
