@@ -244,6 +244,9 @@ export default function PaperCanvas({
         onLostPointerCapture={onLostPointerCapture}
         onContextMenu={(e) => e.preventDefault()}
         aria-label="Notebook page canvas"
+        data-user-strokes={page.layers.filter((l) => l.author === "user").reduce((n, l) => n + l.strokes.length, 0)}
+        data-ai-elements={page.layers.filter((l) => l.author === "ai").reduce((n, l) => n + l.elements.length, 0)}
+        data-ai-visible={String(page.layers.find((l) => l.author === "ai")?.visible ?? true)}
       />
     </div>
   );

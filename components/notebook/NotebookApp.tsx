@@ -56,6 +56,8 @@ export default function NotebookApp() {
     );
   }
 
+  const aiLayerOnPage = nb.page?.layers.find((l) => l.author === "ai");
+
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-white">
       <Toolbar
@@ -80,6 +82,10 @@ export default function NotebookApp() {
         onExport={nb.exportNotebook}
         assistantOpen={assistantOpen}
         onToggleAssistant={() => setAssistantOpen((o) => !o)}
+        aiCount={aiLayerOnPage?.elements.length ?? 0}
+        aiVisible={aiLayerOnPage?.visible ?? true}
+        onToggleAI={() => nb.setAILayerVisible(!(aiLayerOnPage?.visible ?? true))}
+        onClearAI={nb.clearAIContent}
       />
 
       {!nb.storageAvailable && (

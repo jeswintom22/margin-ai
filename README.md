@@ -186,7 +186,31 @@ tests/                  Vitest suites (geometry, coords, history, document, stor
 
 ## Testing
 
-146 tests cover stroke geometry, coordinate conversion under resize, undo/redo,
+### End-to-end (Playwright)
+
+```bash
+npx playwright install chromium   # once: downloads the browser binary
+npm run test:e2e                  # builds, starts `next start` on :3100, runs e2e/
+```
+
+`/api/ask` is mocked with deterministic fixtures — no provider calls. The canvas exposes
+read-only `data-user-strokes`, `data-ai-elements`, and `data-ai-visible` attributes for
+the current page so tests can assert document state. Covers drawing/undo/erase,
+multi-page AI insertion undo from another page + redo, reload persistence, and AI-layer
+hide/clear with undo.
+
+### History policy
+
+Undo/redo is a single notebook-wide stack (`NotebookHistory`). Each entry has an explicit
+target: `{ scope: "page", pageId }` or `{ scope: "notebook" }` (AI insertions). Undo
+reverses the most recent edit anywhere and navigates to the affected page, so an earlier
+insertion is never undone while later edits still sit on top of it. Deleting a page
+(confirmed, not undoable) prunes entries that reference it. AI-layer visibility toggles
+are undoable.
+
+### Unit tests (Vitest)
+
+173 tests cover stroke geometry, coordinate conversion under resize, undo/redo,
 eraser transactions and gesture cancellation, validation/migration, user↔AI layer
 separation, IndexedDB save/reload, autosave, the LLM client and request protection,
 the answer schema (all block types, limits, invalid inputs), the generation service

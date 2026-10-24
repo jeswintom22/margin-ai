@@ -19,7 +19,7 @@ import {
   type StrokeTool,
   type PageElement,
 } from "@/lib/document/types";
-import { PageHistory, apply, applyInsertion, removeStrokes, EraseTransaction } from "@/lib/history/history";
+import { NotebookHistory, type PageOperation, apply, applyInsertion, removeStrokes, EraseTransaction } from "@/lib/history/history";
 import { layoutAnswer } from "@/lib/ai/answerLayout";
 import type { AnswerDocument } from "@/lib/ai/answerSchema";
 import { strokeIntersectsRect, simplifyPoints, type Rect } from "@/lib/drawing/geometry";
@@ -51,7 +51,7 @@ export function useNotebook() {
   const [histFlags, setHistFlags] = useState({ undo: false, redo: false });
 
   const nbRef = useRef<Notebook | null>(null);
-  const histories = useRef(new Map<string, PageHistory>());
+  const history = useRef(new NotebookHistory());
   const eraseTxn = useRef<EraseTransaction | null>(null);
   const saverRef = useRef<AutoSaver | null>(null);
 
@@ -67,13 +67,9 @@ export function useNotebook() {
     return notebook.pages.find((p) => p.id === activePageId) ?? notebook.pages[0] ?? null;
   }, [notebook, activePageId]);
 
-  const historyOf = useCallback((pageId: string) => {
-    let h = histories.current.get(pageId);
-    if (!h) {
-      h = new PageHistory();
-      histories.current.set(pageId, h);
-    }
-    return h;
+  /** Record a page-scoped op that has already been applied. */
+  const recordPage = useCallback((pageId: string, op: PageOperation) => {
+    history.current.record({ scope: "page", pageId, op });
   }, []);
 
   // ---------- persistence ----------
@@ -105,11 +101,8 @@ export function useNotebook() {
   const scheduleSave = useCallback(() => saverRef.current?.markDirty(), []);
 
   const refreshHistFlags = useCallback(() => {
-    const nb = nbRef.current;
-    const p = nb?.pages.find((x) => x.id === activePageId) ?? nb?.pages[0];
-    const h = p ? histories.current.get(p.id) : undefined;
-    setHistFlags({ undo: !!h?.canUndo, redo: !!h?.canRedo });
-  }, [activePageId]);
+    setHistFlags({ undo: history.current.canUndo, redo: history.current.canRedo });
+  }, []);
 
   const mutate = useCallback(
     (fn: () => void) => {
@@ -197,7 +190,7 @@ export function useNotebook() {
       const nb = await db.loadNotebook(id);
       if (!nb) return;
       setNotebook(nb);
-      histories.current.clear();
+      history.current.clear();
       eraseTxn.current = null;
       setSelectedIds([]);
       setActivePageId(nb.pages[0].id);
@@ -218,7 +211,7 @@ export function useNotebook() {
         setStorageAvailable(false);
       }
       setNotebook(nb);
-      histories.current.clear();
+      history.current.clear();
       eraseTxn.current = null;
       setActivePageId(nb.pages[0].id);
       setSaveStatus("saved");
@@ -254,7 +247,7 @@ export function useNotebook() {
           } catch { /* ignore */ }
         }
         setNotebook(nb);
-        histories.current.clear();
+        history.current.clear();
       eraseTxn.current = null;
         setActivePageId(nb.pages[0].id);
         bump();
@@ -294,7 +287,7 @@ export function useNotebook() {
       mutate(() => {
         nb.pages = nb.pages.filter((p) => p.id !== pageId);
       });
-      histories.current.delete(pageId);
+      history.current.prunePage(pageId);
       if (activePageId === pageId) {
         setActivePageId(nb.pages[Math.max(0, idx - 1)]?.id ?? nb.pages[0].id);
       }
@@ -346,10 +339,10 @@ export function useNotebook() {
       mutate(() => {
         const layer = userLayer(page);
         apply(page, { type: "addStroke", layerId: layer.id, stroke });
-        historyOf(page.id).record({ type: "addStroke", layerId: layer.id, stroke });
+        recordPage(page.id, { type: "addStroke", layerId: layer.id, stroke });
       });
     },
-    [page, tool, color, strokeWidth, mutate, historyOf]
+    [page, tool, color, strokeWidth, mutate, recordPage]
   );
 
   // ---------- eraser gestures ----------
@@ -379,11 +372,11 @@ export function useNotebook() {
       const op = txn.commit(page);
       if (!op) return false;
       mutate(() => {
-        historyOf(page.id).record(op);
+        recordPage(page.id, op);
       });
       return true;
     },
-    [page, mutate, historyOf, scheduleSave]
+    [page, mutate, recordPage, scheduleSave]
   );
 
   /** Commit the current eraser gesture as one undoable operation. */
@@ -394,9 +387,9 @@ export function useNotebook() {
     const op = txn.commit(page);
     if (!op) return;
     mutate(() => {
-      historyOf(page.id).record(op);
+      recordPage(page.id, op);
     });
-  }, [page, mutate, historyOf]);
+  }, [page, mutate, recordPage]);
 
   const selectInRect = useCallback(
     (rect: Rect): string[] => {
@@ -420,10 +413,10 @@ export function useNotebook() {
       const removed = removeStrokes(page, wanted);
       const eraserOp = { id: newId(), targetStrokeIds: removed.map((r) => r.stroke.id), at: Date.now() };
       page.eraserOperations.push(eraserOp);
-      historyOf(page.id).record({ type: "eraseStrokes", eraserOp, removed });
+      recordPage(page.id, { type: "eraseStrokes", eraserOp, removed });
     });
     setSelectedIds([]);
-  }, [page, selectedIds, mutate, historyOf]);
+  }, [page, selectedIds, mutate, recordPage]);
 
   // ---------- undo/redo ----------
 
@@ -435,27 +428,28 @@ export function useNotebook() {
   const canUndo = histFlags.undo;
   const canRedo = histFlags.redo;
 
+  /** Undo the most recent edit anywhere in the notebook and show its page. */
   const undo = useCallback(() => {
     const nb = nbRef.current;
-    if (!nb || !page) return;
-    const pageIdBefore = page.id;
+    if (!nb) return;
+    let focus: string | null = null;
     mutate(() => {
-      historyOf(pageIdBefore).undoNotebook(nb);
+      focus = history.current.undo(nb);
     });
-    // Undoing an insertion may delete the page we're on.
-    const cur = nb.pages.find((p) => p.id === activePageId);
-    if (!cur) setActivePageId(nb.pages[0].id);
+    if (focus) setActivePageId(focus);
     setSelectedIds([]);
-  }, [page, activePageId, mutate, historyOf]);
+  }, [mutate]);
 
   const redo = useCallback(() => {
     const nb = nbRef.current;
-    if (!nb || !page) return;
+    if (!nb) return;
+    let focus: string | null = null;
     mutate(() => {
-      historyOf(page.id).redoNotebook(nb);
+      focus = history.current.redo(nb);
     });
+    if (focus) setActivePageId(focus);
     setSelectedIds([]);
-  }, [page, mutate, historyOf]);
+  }, [mutate]);
 
   // ---------- AI insertion ----------
 
@@ -495,7 +489,7 @@ export function useNotebook() {
         const op = { type: "insertElements" as const, groupId, createdPages, appends };
         mutate(() => {
           applyInsertion(nb, op);
-          historyOf(page.id).record(op);
+          history.current.record({ scope: "notebook", op });
         });
         setActivePageId(page.id);
         return { ok: true, pageId: page.id, pageSpan: laidOut.length };
@@ -503,7 +497,7 @@ export function useNotebook() {
         return { ok: false, error: "Could not lay out the answer" };
       }
     },
-    [page, mutate, historyOf]
+    [page, mutate]
   );
 
   /** Remove all AI elements on the current page (one undoable op). */
@@ -514,9 +508,9 @@ export function useNotebook() {
     mutate(() => {
       const removed = layer.elements.map((element, index) => ({ index, element }));
       layer.elements = [];
-      historyOf(page.id).record({ type: "removeElements", pageId: page.id, layerId: layer.id, removed });
+      recordPage(page.id, { type: "removeElements", pageId: page.id, layerId: layer.id, removed });
     });
-  }, [page, mutate, historyOf]);
+  }, [page, mutate, recordPage]);
 
   // ---------- AI-readiness ops (no UI yet) ----------
 
@@ -528,22 +522,24 @@ export function useNotebook() {
         const layer = aiLayer(page);
         for (const stroke of strokes) {
           apply(page, { type: "addStroke", layerId: layer.id, stroke });
-          historyOf(page.id).record({ type: "addStroke", layerId: layer.id, stroke });
+          recordPage(page.id, { type: "addStroke", layerId: layer.id, stroke });
         }
       });
     },
-    [page, mutate, historyOf]
+    [page, mutate, recordPage]
   );
 
   const setAILayerVisible = useCallback(
     (visible: boolean) => {
       if (!page) return;
+      const l = page.layers.find((x) => x.author === "ai");
+      if (!l || l.visible === visible) return; // no-op: no history entry
       mutate(() => {
-        const l = page.layers.find((x) => x.author === "ai");
-        if (l) l.visible = visible;
+        l.visible = visible;
+        recordPage(page.id, { type: "setLayerVisibility", layerId: l.id, from: !visible, to: visible });
       });
     },
-    [page, mutate]
+    [page, mutate, recordPage]
   );
 
   // ---------- export / import ----------
@@ -559,7 +555,7 @@ export function useNotebook() {
         await db.saveNotebook(nb);
         setMetas(await db.listNotebooks());
         setNotebook(nb);
-        histories.current.clear();
+        history.current.clear();
       eraseTxn.current = null;
         setActivePageId(nb.pages[0].id);
         bump();
@@ -578,7 +574,7 @@ export function useNotebook() {
     const fresh = await db.loadNotebook(nb.id);
     if (fresh) {
       setNotebook(fresh);
-      histories.current.clear();
+      history.current.clear();
       eraseTxn.current = null;
       setActivePageId((id) => (fresh.pages.some((p) => p.id === id) ? id : fresh.pages[0].id));
       setConflict(false);

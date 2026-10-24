@@ -22,6 +22,8 @@ export type AssistantExchange = {
   error?: string;
   /** Shown after "Write to Notebook" is used. */
   insertedNote?: string;
+  /** True once successfully written to the notebook (prevents duplicates). */
+  inserted?: boolean;
   createdAt: number;
 };
 

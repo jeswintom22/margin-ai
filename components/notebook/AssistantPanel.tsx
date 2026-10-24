@@ -82,7 +82,11 @@ export default function AssistantPanel({ onClose, onInsert, getContext, hasSelec
       else { speaker.current.pause(); setPaused(true); }
       return;
     }
-    speaker.current.speak(answerToSpeechText(doc), rate);
+    speaker.current.speak(answerToSpeechText(doc), rate, () => {
+      // Ignore the end event of an utterance that a newer playback replaced.
+      setPlayingId((cur) => (cur === id ? null : cur));
+      setPaused(false);
+    });
     setPlayingId(id);
     setPaused(false);
   };
@@ -167,26 +171,36 @@ export default function AssistantPanel({ onClose, onInsert, getContext, hasSelec
                   )}
                   <button
                     type="button"
+                    disabled={ex.inserted}
                     onClick={() => {
+                      if (ex.inserted) return;
                       const r = onInsert(ex.answer!);
                       update(ex.id, {
+                        inserted: r.ok,
                         insertedNote: r.ok
-                          ? `Inserted${r.pageSpan && r.pageSpan > 1 ? ` across ${r.pageSpan} pages` : ""}`
+                          ? `Inserted${r.pageSpan && r.pageSpan > 1 ? ` across ${r.pageSpan} pages` : ""} — Ctrl+Z to undo`
                           : (r.error ?? "Insertion failed"),
                       });
                     }}
-                    className="rounded-md bg-blue-600 px-2.5 py-1 text-xs text-white hover:bg-blue-700"
+                    className="rounded-md bg-blue-600 px-2.5 py-1 text-xs text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
                   >
-                    Write to Notebook
+                    {ex.inserted ? "Written" : "Write to Notebook"}
                   </button>
                   {ex.insertedNote && <span className="text-xs text-neutral-500">{ex.insertedNote}</span>}
                 </div>
               </div>
             )}
             {ex.error && (
-              <p role="alert" className="rounded-md bg-red-50 px-2 py-1.5 text-sm text-red-700">
-                {ex.error}
-              </p>
+              <div role="alert" className="flex items-start gap-2 rounded-md bg-red-50 px-2 py-1.5 text-sm text-red-700">
+                <span className="flex-1">{ex.error}</span>
+                <button
+                  type="button"
+                  onClick={() => setQuestion(ex.question)}
+                  className="shrink-0 rounded border border-red-200 px-1.5 text-xs hover:bg-red-100"
+                >
+                  Retry
+                </button>
+              </div>
             )}
             {!ex.answer && !ex.error && <p className="text-sm text-neutral-400">Thinking…</p>}
           </li>
@@ -236,11 +250,23 @@ export default function AssistantPanel({ onClose, onInsert, getContext, hasSelec
             />
             Include this page
           </label>
+          {withContext && !pendingImage && (
+            <span className="w-full text-[11px] text-neutral-500">
+              Sends AI text and ink layout only — handwriting isn&apos;t read unless you use Read handwriting.
+            </span>
+          )}
           <button
             type="button"
             disabled={!hasSelection}
             title={hasSelection ? "Ask about the selected ink" : "Select strokes on the page first"}
-            onClick={() => { setQuestion("Explain the selected content"); setWithContext(true); }}
+            onClick={() => {
+              // Ink is only readable by the model as an image; attach the
+              // captured selection so the explanation is grounded in it.
+              const cap = captureSelection?.();
+              if (cap) setPendingImage(cap);
+              setQuestion("Explain the selected content");
+              setWithContext(true);
+            }}
             className="rounded border border-neutral-300 px-1.5 py-0.5 text-xs text-neutral-600 disabled:opacity-40"
           >
             Explain selection

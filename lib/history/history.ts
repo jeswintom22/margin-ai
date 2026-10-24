@@ -22,6 +22,7 @@ export type Operation =
       /** Elements appended to existing pages. */
       appends: { pageId: string; layerId: string; elements: PageElement[] }[];
     }
+  | { type: "setLayerVisibility"; layerId: string; from: boolean; to: boolean }
   | {
       type: "removeElements";
       pageId: string;
@@ -64,25 +65,6 @@ export class PageHistory {
     return true;
   }
 
-  /** Undo a notebook-level op (insertElements spans pages). */
-  undoNotebook(nb: Notebook): boolean {
-    const op = this.undoStack.pop();
-    if (!op) return false;
-    if (op.type === "insertElements") revertInsertion(nb, op);
-    else revert(nb.pages.find((p) => p.layers.some((l) => "layerId" in op && l.id === op.layerId)) ?? nb.pages[0], op);
-    this.redoStack.push(op);
-    return true;
-  }
-
-  redoNotebook(nb: Notebook): boolean {
-    const op = this.redoStack.pop();
-    if (!op) return false;
-    if (op.type === "insertElements") applyInsertion(nb, op);
-    else apply(nb.pages.find((p) => p.layers.some((l) => "layerId" in op && l.id === op.layerId)) ?? nb.pages[0], op);
-    this.undoStack.push(op);
-    return true;
-  }
-
   clear() {
     this.undoStack = [];
     this.redoStack = [];
@@ -98,6 +80,8 @@ function layerOf(page: NotebookPage, layerId: string) {
 export function apply(page: NotebookPage, op: Operation) {
   if (op.type === "addStroke") {
     layerOf(page, op.layerId).strokes.push(op.stroke);
+  } else if (op.type === "setLayerVisibility") {
+    layerOf(page, op.layerId).visible = op.to;
   } else if (op.type === "removeElements") {
     const layer = layerOf(page, op.layerId);
     const ids = new Set(op.removed.map((r) => r.element.id));
@@ -114,7 +98,10 @@ export function apply(page: NotebookPage, op: Operation) {
 
 /** Apply an insertElements op to the whole notebook (may create pages). */
 export function applyInsertion(nb: Notebook, op: Extract<Operation, { type: "insertElements" }>) {
-  for (const c of op.createdPages) nb.pages.splice(Math.min(c.index, nb.pages.length), 0, c.page);
+  for (const c of op.createdPages) {
+    // A created page kept by a previous undo (it held user ink) is reused.
+    if (!nb.pages.some((p) => p.id === c.page.id)) nb.pages.splice(Math.min(c.index, nb.pages.length), 0, c.page);
+  }
   for (const a of op.appends) {
     const p = nb.pages.find((x) => x.id === a.pageId);
     const layer = p && layerOf(p, a.layerId);
@@ -127,8 +114,12 @@ export function revertInsertion(nb: Notebook, op: Extract<Operation, { type: "in
   for (const p of nb.pages) {
     for (const l of p.layers) l.elements = l.elements.filter((e) => !ids.has(e.id));
   }
+  // Remove pages this insertion created — unless the user has since written on
+  // them or added other content; never delete user ink, never leave zero pages.
   const created = new Set(op.createdPages.map((c) => c.page.id));
-  nb.pages = nb.pages.filter((p) => !created.has(p.id));
+  const isEmpty = (p: NotebookPage) => p.layers.every((l) => l.strokes.length === 0 && l.elements.length === 0);
+  const kept = nb.pages.filter((p) => !created.has(p.id) || !isEmpty(p));
+  if (kept.length) nb.pages = kept;
 }
 
 export function revert(page: NotebookPage, op: Operation) {
@@ -147,6 +138,7 @@ export function revert(page: NotebookPage, op: Operation) {
     const i = page.eraserOperations.findIndex((e) => e.id === op.eraserOp.id);
     if (i >= 0) page.eraserOperations.splice(i, 1);
   }
+  if (op.type === "setLayerVisibility") layerOf(page, op.layerId).visible = op.from;
   if (op.type === "removeElements") {
     const layer = layerOf(page, op.layerId);
     for (let i = op.removed.length - 1; i >= 0; i--) {
@@ -217,7 +209,7 @@ export class EraseTransaction {
    * single `eraseStrokes` op covering the whole gesture, or null if nothing
    * was removed.
    */
-  commit(page: NotebookPage): Operation | null {
+  commit(page: NotebookPage): Extract<Operation, { type: "eraseStrokes" }> | null {
     if (page.id !== this.pageId || this.removed.length === 0) return null;
     const eraserOp: EraserOperation = {
       id: newId(),
@@ -226,5 +218,86 @@ export class EraseTransaction {
     };
     page.eraserOperations.push(eraserOp);
     return { type: "eraseStrokes", eraserOp, removed: this.removed.slice() };
+  }
+}
+
+export type InsertOperation = Extract<Operation, { type: "insertElements" }>;
+export type PageOperation = Exclude<Operation, InsertOperation>;
+
+/**
+ * One undo entry with an explicit, typed target: either a single page or the
+ * whole notebook (AI insertions can create and modify several pages).
+ */
+export type HistoryEntry =
+  | { scope: "page"; pageId: string; op: PageOperation }
+  | { scope: "notebook"; op: InsertOperation };
+
+function entryTouches(e: HistoryEntry, pageId: string): boolean {
+  if (e.scope === "page") return e.pageId === pageId;
+  return e.op.appends.some((a) => a.pageId === pageId) || e.op.createdPages.some((c) => c.page.id === pageId);
+}
+
+/** Page to show after undo/redo: the affected page that still exists. */
+function focusOf(nb: Notebook, e: HistoryEntry): string | null {
+  const ids = e.scope === "page" ? [e.pageId] : e.op.appends.map((a) => a.pageId);
+  return ids.find((id) => nb.pages.some((p) => p.id === id)) ?? null;
+}
+
+/**
+ * Notebook-wide linear history (LIFO across pages). Undo always reverses the
+ * most recent edit anywhere, so an earlier operation is never undone while a
+ * later edit still depends on it; the UI navigates to the affected page.
+ */
+export class NotebookHistory {
+  private undoStack: HistoryEntry[] = [];
+  private redoStack: HistoryEntry[] = [];
+
+  constructor(readonly limit = 300) {}
+
+  get canUndo() { return this.undoStack.length > 0; }
+  get canRedo() { return this.redoStack.length > 0; }
+
+  record(entry: HistoryEntry) {
+    this.undoStack.push(entry);
+    if (this.undoStack.length > this.limit) this.undoStack.shift();
+    this.redoStack = [];
+  }
+
+  /** Returns the page id to focus, or null if nothing was undone. */
+  undo(nb: Notebook): string | null {
+    const e = this.undoStack.pop();
+    if (!e) return null;
+    if (e.scope === "notebook") revertInsertion(nb, e.op);
+    else {
+      const page = nb.pages.find((p) => p.id === e.pageId);
+      if (!page) return null; // pruned target; entry dropped
+      revert(page, e.op);
+    }
+    this.redoStack.push(e);
+    return focusOf(nb, e) ?? nb.pages[0]?.id ?? null;
+  }
+
+  redo(nb: Notebook): string | null {
+    const e = this.redoStack.pop();
+    if (!e) return null;
+    if (e.scope === "notebook") applyInsertion(nb, e.op);
+    else {
+      const page = nb.pages.find((p) => p.id === e.pageId);
+      if (!page) return null;
+      apply(page, e.op);
+    }
+    this.undoStack.push(e);
+    return focusOf(nb, e);
+  }
+
+  /** Drop entries that reference a deleted page (page deletion isn't undoable). */
+  prunePage(pageId: string) {
+    this.undoStack = this.undoStack.filter((e) => !entryTouches(e, pageId));
+    this.redoStack = this.redoStack.filter((e) => !entryTouches(e, pageId));
+  }
+
+  clear() {
+    this.undoStack = [];
+    this.redoStack = [];
   }
 }

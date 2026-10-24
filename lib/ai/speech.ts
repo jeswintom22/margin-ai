@@ -82,7 +82,7 @@ export function createDictation(
 // ---------- spoken output ----------
 
 export interface Speaker {
-  speak(text: string, rate: number): void;
+  speak(text: string, rate: number, onEnd?: () => void): void;
   pause(): void;
   resume(): void;
   stop(): void;
@@ -94,10 +94,11 @@ export function createSpeaker(): Speaker | null {
   if (!speechSupport(window).synthesis) return null;
   const s = window.speechSynthesis;
   return {
-    speak(text, rate) {
+    speak(text, rate, onEnd) {
       s.cancel();
       const u = new SpeechSynthesisUtterance(text);
       u.rate = rate;
+      if (onEnd) { u.onend = onEnd; u.onerror = onEnd; }
       s.speak(u);
     },
     pause: () => s.pause(),

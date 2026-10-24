@@ -121,6 +121,7 @@ export default function Sidebar(p: Props) {
             <button
               type="button"
               onClick={() => p.onSelectPage(pg.id)}
+              aria-current={pg.id === p.activePageId ? "page" : undefined}
               onDoubleClick={() => {
                 const t = window.prompt("Page title", pg.title);
                 if (t != null) p.onRenamePage(pg.id, t);
