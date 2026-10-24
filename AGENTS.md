@@ -70,3 +70,4 @@ The 30-minute target is this repository's working convention. It does not replac
 - Undo/redo is per page via `PageHistory` in `lib/history/`; new editing features should be implemented as reversible operations.
 - AI calls go through the server route `app/api/ask/route.ts` → `lib/ai/llm.ts`; never import `lib/ai/llm.ts` from client components or expose `LLM_*` env vars to the browser.
 - **Commit after every step** (owner preference): each completed sub-step of a task (e.g. a new module, a UI wiring change, tests, docs) gets its own focused commit once its checks pass. Do not batch a whole task into one commit at the end.
+- **Push after every commit** (owner preference) to `origin` (`https://github.com/jeswintom22/margin-ai.git`, branch `main`). Never force-push; if the push is rejected, fetch and rebase/merge instead.

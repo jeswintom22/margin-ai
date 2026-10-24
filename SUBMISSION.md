@@ -6,7 +6,7 @@ Complete this file during the hackathon and use it to prepare your submission th
 
 - **Project name:** Margin AI
 - **Short description:** A local-first digital handwriting notebook (Xournal++-style) whose document model is designed so an AI tutor can later write solutions onto a user's notes as a separate, non-destructive layer. MVP 1 delivers working pen/highlighter/eraser drawing, multi-notebook and multi-page management, per-page undo/redo, IndexedDB autosave, and JSON export/import — the AI layer exists structurally but no AI features are shipped yet.
-- **Code repository URL:** TODO
+- **Code repository URL:** https://github.com/jeswintom22/margin-ai
 - **Final submitted implementation commit SHA:** TODO
 - **Working demo URL or local demo steps:** Local demo — `npm install && npm run dev`, then open http://localhost:3000.
 - **Demo access requirements:** A modern browser (Chrome/Edge/Firefox/Safari). No credentials or backend needed; all data stays in the browser's IndexedDB.
