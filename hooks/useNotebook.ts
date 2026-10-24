@@ -17,8 +17,8 @@ import {
   type Stroke,
   type StrokeTool,
 } from "@/lib/document/types";
-import { PageHistory, apply, type RemovedStroke } from "@/lib/history/history";
-import { strokeHitsPoint, strokeIntersectsRect, simplifyPoints, type Rect } from "@/lib/drawing/geometry";
+import { PageHistory, apply, removeStrokes, EraseTransaction } from "@/lib/history/history";
+import { strokeIntersectsRect, simplifyPoints, type Rect } from "@/lib/drawing/geometry";
 import * as db from "@/lib/storage/db";
 import { AutoSaver } from "@/lib/storage/autosave";
 import { downloadNotebook, importNotebookJSON } from "@/lib/storage/exportImport";
@@ -48,6 +48,7 @@ export function useNotebook() {
 
   const nbRef = useRef<Notebook | null>(null);
   const histories = useRef(new Map<string, PageHistory>());
+  const eraseTxn = useRef<EraseTransaction | null>(null);
   const saverRef = useRef<AutoSaver | null>(null);
 
   const bump = useCallback(() => setVersion((v) => v + 1), []);
@@ -74,9 +75,9 @@ export function useNotebook() {
   // ---------- persistence ----------
 
   // AutoSaver serializes saves, tracks dirty state across in-flight writes,
-  // and retries failures. One instance for the life of the hook.
-  if (!saverRef.current) {
-    saverRef.current = new AutoSaver({
+  // and retries failures. Created on mount; mutations only happen after mount.
+  useEffect(() => {
+    saverRef.current ??= new AutoSaver({
       delayMs: AUTOSAVE_MS,
       onStatus: setSaveStatus,
       save: async () => {
@@ -93,12 +94,11 @@ export function useNotebook() {
         } catch { /* BroadcastChannel unsupported */ }
       },
     });
-  }
-  const saver = saverRef.current;
+  }, []);
 
-  const persist = useCallback(() => saver.flush(), [saver]);
+  const persist = useCallback(() => saverRef.current?.flush() ?? Promise.resolve(), []);
 
-  const scheduleSave = useCallback(() => saver.markDirty(), [saver]);
+  const scheduleSave = useCallback(() => saverRef.current?.markDirty(), []);
 
   const refreshHistFlags = useCallback(() => {
     const nb = nbRef.current;
@@ -143,11 +143,11 @@ export function useNotebook() {
     ch.onmessage = (e) => {
       const m = e.data;
       if (m?.type === "saved" && m.tab !== TAB_ID && nbRef.current?.id === m.id) {
-        if (saver.pending) setConflict(true);
+        if (saverRef.current?.pending) setConflict(true);
       }
     };
     return () => ch.close();
-  }, [saver]);
+  }, []);
 
   // ---------- initial load ----------
 
@@ -194,6 +194,7 @@ export function useNotebook() {
       if (!nb) return;
       setNotebook(nb);
       histories.current.clear();
+      eraseTxn.current = null;
       setSelectedIds([]);
       setActivePageId(nb.pages[0].id);
       setSaveStatus("saved");
@@ -214,6 +215,7 @@ export function useNotebook() {
       }
       setNotebook(nb);
       histories.current.clear();
+      eraseTxn.current = null;
       setActivePageId(nb.pages[0].id);
       setSaveStatus("saved");
       bump();
@@ -249,6 +251,7 @@ export function useNotebook() {
         }
         setNotebook(nb);
         histories.current.clear();
+      eraseTxn.current = null;
         setActivePageId(nb.pages[0].id);
         bump();
       }
@@ -345,27 +348,51 @@ export function useNotebook() {
     [page, tool, color, strokeWidth, mutate, historyOf]
   );
 
-  /** Erase all user+ai strokes near a point. Records one undoable op. */
+  // ---------- eraser gestures ----------
+
+  /** Begin one continuous eraser drag. Ends via endErase or a new beginErase. */
+  const beginErase = useCallback(() => {
+    eraseTxn.current = page ? new EraseTransaction(page.id) : null;
+  }, [page]);
+
+  /**
+   * Erase strokes near a point. Inside a gesture (after beginErase) hits are
+   * accumulated into the transaction; standalone calls erase as a single op
+   * so eraseAt is safe to use without a gesture lifecycle.
+   */
   const eraseAt = useCallback(
     (x: number, y: number, radius: number) => {
       if (!page) return false;
-      const removed: RemovedStroke[] = [];
-      for (const layer of page.layers) {
-        layer.strokes.forEach((s, index) => {
-          if (strokeHitsPoint(s, x, y, radius)) removed.push({ layerId: layer.id, index, stroke: s });
-        });
+      const txn = eraseTxn.current ?? new EraseTransaction(page.id);
+      const removed = txn.eraseAt(page, x, y, radius);
+      if (removed === 0) return false;
+      if (eraseTxn.current) {
+        // Mid-gesture: the doc is mutated; the canvas repaints itself, and the
+        // save + React sync happen when the gesture commits in endErase.
+        scheduleSave();
+        return true;
       }
-      if (removed.length === 0) return false;
-      const eraserOp = { id: newId(), targetStrokeIds: removed.map((r) => r.stroke.id), at: Date.now() };
-      const op = { type: "eraseStrokes" as const, eraserOp, removed };
+      const op = txn.commit(page);
+      if (!op) return false;
       mutate(() => {
-        apply(page, op);
         historyOf(page.id).record(op);
       });
       return true;
     },
-    [page, mutate, historyOf]
+    [page, mutate, historyOf, scheduleSave]
   );
+
+  /** Commit the current eraser gesture as one undoable operation. */
+  const endErase = useCallback(() => {
+    const txn = eraseTxn.current;
+    eraseTxn.current = null;
+    if (!txn || !page) return;
+    const op = txn.commit(page);
+    if (!op) return;
+    mutate(() => {
+      historyOf(page.id).record(op);
+    });
+  }, [page, mutate, historyOf]);
 
   const selectInRect = useCallback(
     (rect: Rect): string[] => {
@@ -385,17 +412,11 @@ export function useNotebook() {
   const deleteSelected = useCallback(() => {
     if (!page || selectedIds.length === 0) return;
     const wanted = new Set(selectedIds);
-    const removed: RemovedStroke[] = [];
-    for (const layer of page.layers) {
-      layer.strokes.forEach((s, index) => {
-        if (wanted.has(s.id)) removed.push({ layerId: layer.id, index, stroke: s });
-      });
-    }
-    const eraserOp = { id: newId(), targetStrokeIds: [...wanted], at: Date.now() };
-    const op = { type: "eraseStrokes" as const, eraserOp, removed };
     mutate(() => {
-      apply(page, op);
-      historyOf(page.id).record(op);
+      const removed = removeStrokes(page, wanted);
+      const eraserOp = { id: newId(), targetStrokeIds: removed.map((r) => r.stroke.id), at: Date.now() };
+      page.eraserOperations.push(eraserOp);
+      historyOf(page.id).record({ type: "eraseStrokes", eraserOp, removed });
     });
     setSelectedIds([]);
   }, [page, selectedIds, mutate, historyOf]);
@@ -468,6 +489,7 @@ export function useNotebook() {
         setMetas(await db.listNotebooks());
         setNotebook(nb);
         histories.current.clear();
+      eraseTxn.current = null;
         setActivePageId(nb.pages[0].id);
         bump();
         return { ok: true };
@@ -481,16 +503,17 @@ export function useNotebook() {
   const reloadFromStorage = useCallback(async () => {
     const nb = nbRef.current;
     if (!nb) return;
-    saver.cancelPending();
+    saverRef.current?.cancelPending();
     const fresh = await db.loadNotebook(nb.id);
     if (fresh) {
       setNotebook(fresh);
       histories.current.clear();
+      eraseTxn.current = null;
       setActivePageId((id) => (fresh.pages.some((p) => p.id === id) ? id : fresh.pages[0].id));
       setConflict(false);
       bump();
     }
-  }, [bump, setNotebook, saver]);
+  }, [bump, setNotebook]);
 
   return {
     loading,
@@ -509,7 +532,7 @@ export function useNotebook() {
     canUndo, canRedo,
     openNotebook, addNotebook, renameNotebook, removeNotebook,
     addPage, renamePage, deletePage, movePage, selectPage, setPaperStyle,
-    commitStroke, eraseAt, selectInRect, deleteSelected,
+    commitStroke, beginErase, eraseAt, endErase, selectInRect, deleteSelected,
     undo, redo,
     insertAIStrokes, setAILayerVisible,
     exportNotebook, importNotebook, reloadFromStorage,

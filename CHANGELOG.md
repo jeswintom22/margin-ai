@@ -2,6 +2,14 @@
 
 Record each meaningful project change during the event, newest first. Update this file in the same commit as the change. Use a real timestamp with timezone, for example `YYYY-MM-DDTHH:MM:SS+05:30`.
 
+## 2026-10-24T21:56:00+05:30 — Persistence and autosave reliability (Bug Fix 2)
+
+- Changed: new `lib/storage/autosave.ts` (`AutoSaver`); rewired persistence in `hooks/useNotebook.ts`; new `tests/autosave.test.ts` (9 tests). `autosave.ts`/`autosave.test.ts` were included in a concurrent workstream's commit `4d7461d`; this change adds the mount-effect saver creation required by the Next.js 16 react-hooks lint rules.
+- Why: the old `persist()` cleared the dirty flag before the IndexedDB write resolved and set "saved" unconditionally, so an edit during an in-flight save was falsely reported as persisted; `beforeunload` started async work with no retry/serialization; each save leaked a `BroadcastChannel`.
+- What: saves are serialized through `AutoSaver` — a `flush()` during an in-flight write does not start a concurrent put, and edits made mid-save keep the doc dirty and trigger a follow-up save of the latest state. Status is "saving" while any write is pending, "saved" only after `db.saveNotebook` resolves with no newer edits, and "error" on failure (dirty retained, retry after the debounce interval). Pending debounced saves flush early on `pagehide`, `beforeunload`, and `visibilitychange`→hidden (no completion guarantee). The post-save `BroadcastChannel` is now closed after `postMessage`.
+- Validation: `npx vitest run` 68/68 (9 new autosave tests); `npm run typecheck`, `npm run lint` (targeted on changed files), and `npm run build` all pass.
+- Limitations: lifecycle flushes are best-effort — the browser may still kill the page before IndexedDB finishes; no claim of persistence after process termination. A save already in flight when "discard & reload" runs can still complete its write before the reload replaces in-memory state. Debounce (800 ms) and document format unchanged.
+
 ## 2026-10-24T21:52:13+05:30 — Explicit document version policy (Bug Fix 3)
 
 - Changed: `lib/document/schema.ts`, `lib/storage/db.ts`, `tests/document.test.ts`, `tests/storage.test.ts`, `README.md`, and `AI_USAGE.md`. A concurrent workstream included the implementation/tests in commit `4d7461d`; this follow-up records the migration policy and verification.
