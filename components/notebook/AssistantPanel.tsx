@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { newId } from "@/lib/document/types";
 import {
   MAX_QUESTION_LENGTH,
@@ -11,6 +11,10 @@ import {
 import AnswerView from "@/components/notebook/AnswerView";
 import type { AnswerDocument } from "@/lib/ai/answerSchema";
 import type { NotebookContext } from "@/lib/ai/contextSchema";
+import {
+  createDictation, createSpeaker, speechSupport, answerToSpeechText,
+  type DictationState, type SpeechRecognizer, type Speaker,
+} from "@/lib/ai/speech";
 
 type Props = {
   onClose: () => void;
@@ -28,6 +32,58 @@ type Props = {
  */
 export default function AssistantPanel({ onClose, onInsert, getContext, hasSelection }: Props) {
   const [withContext, setWithContext] = useState(false);
+  // voice
+  const support = typeof window !== "undefined" ? speechSupport(window) : { recognition: false, synthesis: false };
+  const [dict, setDict] = useState<DictationState>("idle");
+  const [dictErr, setDictErr] = useState<string | null>(null);
+  const recRef = useRef<SpeechRecognizer | null>(null);
+  const startedAt = useRef(0);
+  const [elapsed, setElapsed] = useState(0);
+  const speaker = useRef<Speaker | null>(null);
+  const [playingId, setPlayingId] = useState<string | null>(null);
+  const [paused, setPaused] = useState(false);
+  const [rate, setRate] = useState(1);
+
+  useEffect(() => {
+    if (dict !== "recording") return;
+    startedAt.current = Date.now();
+    const t = setInterval(() => setElapsed(Math.floor((Date.now() - startedAt.current) / 1000)), 500);
+    return () => clearInterval(t);
+  }, [dict]);
+  useEffect(() => () => { recRef.current?.abort(); speaker.current?.stop(); }, []);
+
+  const startDictation = () => {
+    const rec = createDictation({
+      onResult: (r) => { setQuestion((q) => (q ? q + " " : "") + r.text); setDict("idle"); },
+      onEnd: () => setDict((d) => (d === "recording" ? "idle" : d)),
+      onError: (k) => {
+        setDict("error");
+        setDictErr(k === "denied" ? "Microphone access denied" : k === "no-speech" ? "No speech detected" : "Dictation failed");
+      },
+    });
+    if (!rec) { setDict("error"); setDictErr("Speech recognition is not supported in this browser"); return; }
+    recRef.current = rec;
+    setDictErr(null);
+    setElapsed(0);
+    setDict("recording");
+    try { rec.start(); } catch { setDict("error"); setDictErr("Could not start recording"); }
+  };
+  const stopDictation = () => { setDict("processing"); recRef.current?.stop(); };
+  const cancelDictation = () => { recRef.current?.abort(); recRef.current = null; setDict("idle"); };
+
+  const toggleSpeak = (id: string, doc: AnswerDocument) => {
+    speaker.current ??= createSpeaker();
+    if (!speaker.current) { setDictErr("Speech synthesis is not supported in this browser"); return; }
+    if (playingId === id) {
+      if (paused) { speaker.current.resume(); setPaused(false); }
+      else { speaker.current.pause(); setPaused(true); }
+      return;
+    }
+    speaker.current.speak(answerToSpeechText(doc), rate);
+    setPlayingId(id);
+    setPaused(false);
+  };
+  const stopSpeak = () => { speaker.current?.stop(); setPlayingId(null); setPaused(false); };
   const [question, setQuestion] = useState("");
   const [exchanges, setExchanges] = useState<AssistantExchange[]>([]);
   const [pending, setPending] = useState(false);
@@ -88,6 +144,20 @@ export default function AssistantPanel({ onClose, onInsert, getContext, hasSelec
                 <div className="mt-1.5 flex items-center gap-2 border-t border-neutral-100 pt-1.5">
                   <button
                     type="button"
+                    aria-label={playingId === ex.id && !paused ? "Pause answer" : "Read answer aloud"}
+                    onClick={() => toggleSpeak(ex.id, ex.answer!)}
+                    className="rounded-md border border-neutral-300 px-2 py-1 text-xs text-neutral-600 hover:bg-neutral-100"
+                  >
+                    {playingId === ex.id ? (paused ? "Resume" : "Pause") : "Listen"}
+                  </button>
+                  {playingId === ex.id && (
+                    <button type="button" aria-label="Stop playback" onClick={stopSpeak}
+                      className="rounded-md border border-neutral-300 px-2 py-1 text-xs text-neutral-600 hover:bg-neutral-100">
+                      Stop
+                    </button>
+                  )}
+                  <button
+                    type="button"
                     onClick={() => {
                       const r = onInsert(ex.answer!);
                       update(ex.id, {
@@ -122,6 +192,33 @@ export default function AssistantPanel({ onClose, onInsert, getContext, hasSelec
         }}
       >
         <div className="mb-1 flex flex-wrap items-center gap-1.5">
+          {support.recognition ? (
+            dict === "recording" ? (
+              <>
+                <span role="status" className="flex items-center gap-1 text-xs text-red-600">
+                  <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-red-500" />
+                  Recording {elapsed}s
+                </span>
+                <button type="button" onClick={stopDictation} className="rounded border border-neutral-300 px-1.5 py-0.5 text-xs">Stop</button>
+                <button type="button" onClick={cancelDictation} className="rounded border border-neutral-300 px-1.5 py-0.5 text-xs">Cancel</button>
+              </>
+            ) : (
+              <button type="button" aria-label="Dictate question" onClick={startDictation}
+                className="rounded border border-neutral-300 px-1.5 py-0.5 text-xs text-neutral-600">
+                🎤 Dictate
+              </button>
+            )
+          ) : (
+            <span className="text-xs text-neutral-400" title="Speech recognition not supported in this browser">🎤 n/a</span>
+          )}
+          {dict === "processing" && <span className="text-xs text-neutral-500">Transcribing…</span>}
+          {dictErr && <span role="alert" className="text-xs text-red-600">{dictErr}</span>}
+          {support.synthesis && (
+            <select aria-label="Speech rate" value={rate} onChange={(e) => setRate(Number(e.target.value))}
+              className="ml-auto rounded border border-neutral-300 px-1 py-0.5 text-xs text-neutral-600">
+              {[0.75, 1, 1.25, 1.5].map((r) => <option key={r} value={r}>{r}×</option>)}
+            </select>
+          )}
           <label className="flex items-center gap-1 text-xs text-neutral-600">
             <input
               type="checkbox"
