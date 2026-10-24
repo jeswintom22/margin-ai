@@ -5,6 +5,7 @@
  */
 
 import type { AnswerDocument, AnswerBlock, ListItem } from "./answerSchema";
+import { latexToSpeech } from "@/lib/math/latex";
 
 // ---------- types ----------
 
@@ -123,19 +124,7 @@ export function createSpeaker(): Speaker | null {
 
 // ---------- structured answer → spoken text ----------
 
-function latexToSpeech(latex: string): string {
-  return latex
-    .replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, "$1 over $2")
-    .replace(/\\sqrt\{([^{}]*)\}/g, "the square root of $1")
-    .replace(/\^\{?(-?\w+)\}?/g, " to the power $1")
-    .replace(/_\{?(\w+)\}?/g, " sub $1")
-    .replace(/\\(times|cdot)/g, " times ")
-    .replace(/\\(alpha|beta|gamma|delta|theta|pi|sigma|omega)/g, " $1")
-    .replace(/\\[a-zA-Z]+/g, " ")
-    .replace(/[{}$\\]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim() || "a mathematical expression";
-}
+
 
 function listToSpeech(items: ListItem[], numbered: boolean, out: string[], depth = 0) {
   items.forEach((it, i) => {
