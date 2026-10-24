@@ -26,6 +26,8 @@ type Props = {
   onAddPage: () => void;
   onToggleSidebar: () => void;
   onExport: () => void;
+  assistantOpen: boolean;
+  onToggleAssistant: () => void;
 };
 
 function ToolButton({
@@ -149,6 +151,19 @@ export default function Toolbar(p: Props) {
         title="Export notebook as JSON"
       >
         Export
+      </button>
+      <button
+        type="button"
+        onClick={p.onToggleAssistant}
+        aria-pressed={p.assistantOpen}
+        className={`h-9 rounded-md border px-2 text-xs ${
+          p.assistantOpen
+            ? "border-neutral-900 bg-neutral-900 text-white"
+            : "border-neutral-300 text-neutral-700 hover:bg-neutral-100"
+        }`}
+        title="Toggle assistant panel"
+      >
+        Assistant
       </button>
 
       <span

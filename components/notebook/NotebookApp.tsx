@@ -5,10 +5,12 @@ import { useNotebook } from "@/hooks/useNotebook";
 import Toolbar from "@/components/notebook/Toolbar";
 import Sidebar from "@/components/notebook/Sidebar";
 import PaperCanvas from "@/components/canvas/PaperCanvas";
+import AssistantPanel from "@/components/notebook/AssistantPanel";
 
 export default function NotebookApp() {
   const nb = useNotebook();
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [assistantOpen, setAssistantOpen] = useState(false);
 
   // keyboard shortcuts
   useEffect(() => {
@@ -74,6 +76,8 @@ export default function NotebookApp() {
         onAddPage={nb.addPage}
         onToggleSidebar={() => setSidebarOpen((o) => !o)}
         onExport={nb.exportNotebook}
+        assistantOpen={assistantOpen}
+        onToggleAssistant={() => setAssistantOpen((o) => !o)}
       />
 
       {!nb.storageAvailable && (
@@ -143,6 +147,8 @@ export default function NotebookApp() {
             </div>
           )}
         </main>
+
+        {assistantOpen && <AssistantPanel onClose={() => setAssistantOpen(false)} />}
       </div>
 
       {nb.selectedIds.length > 0 && (

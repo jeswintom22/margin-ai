@@ -22,7 +22,10 @@ write solutions onto a user's notes as a separate, non-destructive layer.
 
 1. Prerequisites: Node.js ≥ 20 (developed on v25), npm ≥ 10.
 2. `npm install`
-3. No environment variables required.
+3. Environment (only needed for the assistant): copy `.env.example` to `.env.local` and set
+   `LLM_API_KEY`. Optional: `LLM_BASE_URL` (any OpenAI-compatible endpoint, default
+   `https://api.openai.com/v1`), `LLM_MODEL` (default `gpt-4o-mini`), `LLM_TIMEOUT_MS`.
+   The notebook works fully without these; the assistant then reports that it is not configured.
 4. `npm run dev` → http://localhost:3000 (or `npm run build && npm start`)
 5. Checks: `npm test` (Vitest), `npm run typecheck`, `npm run lint`.
 
@@ -34,15 +37,24 @@ write solutions onto a user's notes as a separate, non-destructive layer.
   JSON export/import with schema validation; multi-tab conflict warning; responsive
   collapsible sidebar; keyboard shortcuts (`P`/`H`/`E`/`S`, `Ctrl+Z`/`Ctrl+Y`,
   `Delete`, `Esc`).
+- **Assistant panel (text Q&A):** the toolbar's **Assistant** button opens a side panel.
+  Questions go to `POST /api/ask`, a Next.js route handler that calls one
+  OpenAI-compatible chat completions API. The API key is read on the server only and never
+  sent to the browser. Answers are plain text, kept in memory for the session, and are not
+  written into the notebook yet.
 - **Known limitations:** No palm rejection (browsers don't expose reliable palm data);
   eraser removes whole strokes only; multi-tab editing warns but doesn't merge;
-  no E2E browser tests yet; AI features intentionally out of scope.
+  no E2E browser tests yet. Assistant: no conversation memory (each question is
+  independent), exchanges are lost on refresh, no streaming, no rate limiting on
+  `/api/ask` (fine locally, but add it before any public deployment), and answers are
+  not yet inserted onto pages.
 - **Libraries, APIs, and public datasets used:**
   [Next.js](https://nextjs.org), [React](https://react.dev),
   [Tailwind CSS](https://tailwindcss.com), [idb](https://github.com/jakearchibald/idb),
   [zod](https://zod.dev), [Vitest](https://vitest.dev),
   [fake-indexeddb](https://github.com/dumbmatter/fakeIndexedDB).
-  No external APIs or datasets.
+  External API: one OpenAI-compatible chat completions provider of your choice (configured
+  via `LLM_BASE_URL`), used only by the assistant. No datasets.
 
 See [AI_USAGE.md](AI_USAGE.md) for AI assistance and [CHANGELOG.md](CHANGELOG.md) for the development record.
 
@@ -63,6 +75,10 @@ lib/
   history/history.ts    PageHistory: undoable ops (addStroke, eraseStrokes)
   storage/db.ts         IndexedDB via idb (notebooks + meta stores)
   storage/exportImport.ts
+app/api/ask/route.ts    POST endpoint: validates question, calls the LLM, maps errors
+lib/ai/llm.ts           server-only OpenAI-compatible client (config from env)
+lib/ai/types.ts         request/response types and validation shared with the client
+components/notebook/AssistantPanel.tsx   question box + answer list
 hooks/useNotebook.ts    app store: doc state, tools, autosave, conflicts, AI ops
 tests/                  Vitest suites (geometry, coords, history, document, storage)
 ```
@@ -91,9 +107,10 @@ tests/                  Vitest suites (geometry, coords, history, document, stor
 
 ## Testing
 
-27 tests cover stroke geometry, coordinate conversion under resize, undo/redo,
-eraser restoration, validation/migration, user↔AI layer separation, and IndexedDB
-save/reload. A manual verification checklist for mouse/touch/stylus follows.
+39 tests cover stroke geometry, coordinate conversion under resize, undo/redo,
+eraser restoration, validation/migration, user↔AI layer separation, IndexedDB
+save/reload, the LLM client (request shape, error mapping, timeouts, malformed
+responses), and the `/api/ask` route (validation, missing key, success). A manual verification checklist for mouse/touch/stylus follows.
 
 ### Manual verification checklist
 

@@ -23,7 +23,7 @@ Participate solo or in a team of up to 4. Remove unused rows.
 
 - **Prerequisites and versions:** Node.js ≥ 20 (developed on v25), npm ≥ 10.
 - **Install command:** `npm install`
-- **Required environment variable names:** None.
+- **Required environment variable names:** `LLM_API_KEY` (assistant only); optional `LLM_BASE_URL`, `LLM_MODEL`, `LLM_TIMEOUT_MS`. See `.env.example`.
 - **Start command:** `npm run dev` (or `npm run build && npm start` for production).
 - **Demo walkthrough:**
   1. App opens with "My Notebook" and one ruled page.
@@ -33,7 +33,8 @@ Participate solo or in a team of up to 4. Remove unused rows.
   5. Refresh the browser — all strokes persist.
   6. Use Export to download the notebook JSON, then Import it via the sidebar.
   7. Try the Select tool (drag a rectangle) and Delete to remove selected strokes.
-- **Checks performed and results:** `tsc --noEmit` clean, `eslint` clean, `vitest` 27/27 passing, `next build` clean, production server smoke-tested (HTTP 200).
+  8. With `LLM_API_KEY` set, click **Assistant**, ask a question, and read the answer in the panel.
+- **Checks performed and results:** `tsc --noEmit` clean, `eslint` clean, `vitest` 39/39 passing, `next build` clean, production server smoke-tested (HTTP 200).
 - **Known limitations or incomplete features:** No palm rejection (browser limitation); eraser removes whole strokes; no multi-tab merge (warning only); AI features intentionally out of scope for MVP 1; no E2E browser tests.
 - **Libraries, APIs, and public datasets used:** Next.js 16, React 19, Tailwind CSS 4, `idb` (IndexedDB wrapper), `zod` (import validation); dev: Vitest, fake-indexeddb. No external APIs or datasets.
 - **AI usage record:** [AI_USAGE.md](AI_USAGE.md)
