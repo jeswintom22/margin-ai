@@ -14,7 +14,15 @@ import { readPdfFile, pdfToPages, PdfImportError } from "@/lib/pdf/importPdf";
 export default function NotebookApp() {
   const nb = useNotebook();
   const voice = useVoiceAssistant(nb, {
-    capture: () => (nb.page ? captureRegionPNG(nb.page, nb.selectedIds, { rect: nb.selectionRect ?? undefined }) : null),
+    capture: () => {
+      if (!nb.page) return null;
+      if (nb.selectedIds.length) {
+        return captureRegionPNG(nb.page, nb.selectedIds, { rect: nb.selectionRect ?? undefined });
+      }
+      // Nothing selected: send the whole page — ink and any PDF background —
+      // so the assistant can always see what the user is asking about.
+      return captureRegionPNG(nb.page, [], { rect: { x: 0, y: 0, w: nb.page.width, h: nb.page.height } });
+    },
     getContext: () =>
       nb.notebook && nb.page
         ? buildNotebookContext(nb.notebook, { pageId: nb.page.id, selectedStrokeIds: nb.selectedIds })

@@ -15,7 +15,8 @@ export function captureRegionPNG(
 ): { dataUrl: string; width: number; height: number } | null {
   const sel = new Set(strokeIds);
   const strokes = page.layers.flatMap((l) => l.strokes).filter((s) => sel.has(s.id));
-  if (!strokes.length) return null;
+  // With no strokes, an explicit rect still captures (whole-page / PDF-only).
+  if (!strokes.length && !opts.rect) return null;
 
   const pad = opts.padding ?? 24;
   // Crop to the user's selection region (lasso/rect bounds) when provided,

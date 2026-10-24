@@ -184,7 +184,10 @@ export function useVoiceAssistant(nb: NotebookStore, opts: Opts) {
       // phrasing isn't a recognized tutor command.
       const hasInk = store.selectedIds.length > 0;
       const ids = hasInk ? store.selectedIds : [];
-      const image = hasInk ? optsRef.current.capture()?.dataUrl : undefined;
+      const pageHasContent =
+        !!store.page &&
+        (store.page.layers.some((l) => l.strokes.length > 0) || !!store.page.background);
+      const image = pageHasContent ? optsRef.current.capture()?.dataUrl : undefined;
       const question =
         intent.kind === "tutor" ? text : intent.kind === "explain" ? intent.question : intent.question;
       const mode = intent.kind === "tutor" ? intent.mode : undefined;
