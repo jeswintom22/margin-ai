@@ -20,9 +20,11 @@ import {
 import { PageHistory, apply, type RemovedStroke } from "@/lib/history/history";
 import { strokeHitsPoint, strokeIntersectsRect, simplifyPoints, type Rect } from "@/lib/drawing/geometry";
 import * as db from "@/lib/storage/db";
+import { AutoSaver } from "@/lib/storage/autosave";
 import { downloadNotebook, importNotebookJSON } from "@/lib/storage/exportImport";
 
-export type SaveStatus = "idle" | "saving" | "saved" | "error";
+import type { SaveState as SaveStatus } from "@/lib/storage/autosave";
+export type { SaveStatus };
 
 const TAB_ID = newId();
 const AUTOSAVE_MS = 800;
@@ -46,8 +48,7 @@ export function useNotebook() {
 
   const nbRef = useRef<Notebook | null>(null);
   const histories = useRef(new Map<string, PageHistory>());
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dirty = useRef(false);
+  const saverRef = useRef<AutoSaver | null>(null);
 
   const bump = useCallback(() => setVersion((v) => v + 1), []);
 
@@ -72,32 +73,32 @@ export function useNotebook() {
 
   // ---------- persistence ----------
 
-  const persist = useCallback(async () => {
-    const nb = nbRef.current;
-    if (!nb || !dirty.current) return;
-    dirty.current = false;
-    setSaveStatus("saving");
-    try {
-      nb.updatedAt = Date.now();
-      await db.saveNotebook(nb);
-      await db.setLastOpened(nb.id);
-      setSaveStatus("saved");
-      setMetas(await db.listNotebooks());
-      try {
-        new BroadcastChannel(CHANNEL).postMessage({ type: "saved", id: nb.id, tab: TAB_ID, updatedAt: nb.updatedAt });
-      } catch { /* BroadcastChannel unsupported */ }
-    } catch {
-      dirty.current = true;
-      setSaveStatus("error");
-    }
-  }, []);
+  // AutoSaver serializes saves, tracks dirty state across in-flight writes,
+  // and retries failures. One instance for the life of the hook.
+  if (!saverRef.current) {
+    saverRef.current = new AutoSaver({
+      delayMs: AUTOSAVE_MS,
+      onStatus: setSaveStatus,
+      save: async () => {
+        const nb = nbRef.current;
+        if (!nb) return;
+        nb.updatedAt = Date.now();
+        await db.saveNotebook(nb);
+        await db.setLastOpened(nb.id);
+        setMetas(await db.listNotebooks());
+        try {
+          const ch = new BroadcastChannel(CHANNEL);
+          ch.postMessage({ type: "saved", id: nb.id, tab: TAB_ID, updatedAt: nb.updatedAt });
+          ch.close();
+        } catch { /* BroadcastChannel unsupported */ }
+      },
+    });
+  }
+  const saver = saverRef.current;
 
-  const scheduleSave = useCallback(() => {
-    dirty.current = true;
-    setSaveStatus((s) => (s === "error" ? s : "saving"));
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(persist, AUTOSAVE_MS);
-  }, [persist]);
+  const persist = useCallback(() => saver.flush(), [saver]);
+
+  const scheduleSave = useCallback(() => saver.markDirty(), [saver]);
 
   const refreshHistFlags = useCallback(() => {
     const nb = nbRef.current;
@@ -117,14 +118,22 @@ export function useNotebook() {
     [bump, scheduleSave, refreshHistFlags]
   );
 
-  // flush pending save on unload
+  // Flush pending saves when the page is hidden or closed. pagehide and
+  // visibilitychange fire earlier and more reliably than beforeunload on
+  // mobile; none of them guarantee the async IndexedDB write completes.
   useEffect(() => {
-    const flush = () => {
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-      persist();
+    const flush = () => void persist();
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flush();
     };
+    window.addEventListener("pagehide", flush);
     window.addEventListener("beforeunload", flush);
-    return () => window.removeEventListener("beforeunload", flush);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      window.removeEventListener("beforeunload", flush);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [persist]);
 
   // multi-tab conflict notice
@@ -134,11 +143,11 @@ export function useNotebook() {
     ch.onmessage = (e) => {
       const m = e.data;
       if (m?.type === "saved" && m.tab !== TAB_ID && nbRef.current?.id === m.id) {
-        if (dirty.current || saveTimer.current) setConflict(true);
+        if (saver.pending) setConflict(true);
       }
     };
     return () => ch.close();
-  }, []);
+  }, [saver]);
 
   // ---------- initial load ----------
 
@@ -180,10 +189,7 @@ export function useNotebook() {
 
   const openNotebook = useCallback(
     async (id: string) => {
-      if (saveTimer.current) {
-        clearTimeout(saveTimer.current);
-        await persist();
-      }
+      await persist();
       const nb = await db.loadNotebook(id);
       if (!nb) return;
       setNotebook(nb);
@@ -475,8 +481,7 @@ export function useNotebook() {
   const reloadFromStorage = useCallback(async () => {
     const nb = nbRef.current;
     if (!nb) return;
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    dirty.current = false;
+    saver.cancelPending();
     const fresh = await db.loadNotebook(nb.id);
     if (fresh) {
       setNotebook(fresh);
@@ -485,7 +490,7 @@ export function useNotebook() {
       setConflict(false);
       bump();
     }
-  }, [bump, setNotebook]);
+  }, [bump, setNotebook, saver]);
 
   return {
     loading,

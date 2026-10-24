@@ -36,6 +36,39 @@ describe("IndexedDB repository", () => {
     expect(loaded?.pages[0].layers[0].strokes).toHaveLength(1);
   });
 
+  it("loads valid current documents unchanged", async () => {
+    const nb = createNotebook("Unchanged");
+    await db.saveNotebook(nb);
+    expect(await db.loadNotebook(nb.id)).toEqual(nb);
+  });
+
+  it.each([0, -1, 2, "1", null, 1.5])("rejects stored schema version %s consistently with import", async (schemaVersion) => {
+    const nb = { ...createNotebook("Unsupported"), schemaVersion };
+    const connection = await db.getDB();
+    await connection.put("notebooks", nb);
+    const { importNotebookJSON } = await import("@/lib/storage/exportImport");
+    let importError: unknown;
+    try {
+      importNotebookJSON(JSON.stringify({ format: "margin-ai-notebook", formatVersion: 1, notebook: nb }));
+    } catch (error) {
+      importError = error;
+    }
+    expect(importError).toBeInstanceOf(Error);
+    await expect(db.loadNotebook(nb.id)).rejects.toThrow((importError as Error).message);
+    await expect(db.listNotebooks()).rejects.toThrow((importError as Error).message);
+    expect(await connection.get("notebooks", nb.id)).toEqual(nb);
+  });
+
+  it("rejects malformed stored documents and missing user layers", async () => {
+    const nb = createNotebook("Malformed");
+    const connection = await db.getDB();
+    await connection.put("notebooks", { ...nb, pages: [] });
+    await expect(db.loadNotebook(nb.id)).rejects.toThrow();
+    nb.pages[0].layers[0].author = "ai";
+    await connection.put("notebooks", nb);
+    await expect(db.loadNotebook(nb.id)).rejects.toThrow(/user layer/);
+  });
+
   it("lists notebook metadata sorted by recency", async () => {
     const a = createNotebook("A");
     await db.saveNotebook(a);

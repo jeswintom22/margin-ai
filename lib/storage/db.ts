@@ -1,5 +1,6 @@
 import { openDB, type IDBPDatabase } from "idb";
 import type { Notebook, NotebookMeta } from "@/lib/document/types";
+import { parseNotebook } from "@/lib/document/schema";
 
 const DB_NAME = "margin-ai";
 const DB_VERSION = 1;
@@ -48,7 +49,8 @@ export async function saveNotebook(nb: Notebook): Promise<void> {
 
 export async function loadNotebook(id: string): Promise<Notebook | undefined> {
   const db = await getDB();
-  return db.get(STORE, id);
+  const data: unknown = await db.get(STORE, id);
+  return data === undefined ? undefined : parseNotebook(data);
 }
 
 export async function deleteNotebook(id: string): Promise<void> {
@@ -58,8 +60,9 @@ export async function deleteNotebook(id: string): Promise<void> {
 
 export async function listNotebooks(): Promise<NotebookMeta[]> {
   const db = await getDB();
-  const all = (await db.getAll(STORE)) as Notebook[];
+  const all: unknown[] = await db.getAll(STORE);
   return all
+    .map(parseNotebook)
     .map((n) => ({ id: n.id, title: n.title, pageCount: n.pages.length, updatedAt: n.updatedAt }))
     .sort((a, b) => b.updatedAt - a.updatedAt);
 }

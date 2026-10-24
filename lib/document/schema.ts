@@ -45,7 +45,7 @@ const notebookSchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
   pages: z.array(pageSchema).min(1),
-  schemaVersion: z.number().int().positive(),
+  schemaVersion: z.literal(SCHEMA_VERSION),
   createdAt: z.number(),
   updatedAt: z.number(),
 });
@@ -53,45 +53,45 @@ const notebookSchema = z.object({
 export const exportFileSchema = z.object({
   format: z.literal("margin-ai-notebook"),
   formatVersion: z.literal(1),
-  notebook: notebookSchema,
+  notebook: z.unknown(),
 });
 
-export type ExportFile = z.infer<typeof exportFileSchema>;
+export type ExportFile = Omit<z.infer<typeof exportFileSchema>, "notebook"> & { notebook: Notebook };
 
 /**
  * Validate and migrate a parsed JSON value into a Notebook.
  * Throws on invalid input. Migrates older schema versions forward.
  */
 export function parseNotebook(data: unknown): Notebook {
-  const parsed = notebookSchema.parse(data);
-  return migrateNotebook(parsed as Notebook);
+  return migrateNotebook(data);
 }
 
 export function parseExportFile(data: unknown): Notebook {
   const parsed = exportFileSchema.parse(data);
-  return migrateNotebook(parsed.notebook as Notebook);
+  return migrateNotebook(parsed.notebook);
 }
 
 /**
  * Forward-migrate a notebook to SCHEMA_VERSION.
  * v1 is current; the switch is the extension point for future versions.
  */
-export function migrateNotebook(nb: Notebook): Notebook {
-  if (nb.schemaVersion > SCHEMA_VERSION) {
+export function migrateNotebook(data: unknown): Notebook {
+  const { schemaVersion } = z.object({ schemaVersion: z.number().int() }).parse(data);
+  if (schemaVersion > SCHEMA_VERSION) {
     throw new Error(
-      `Notebook schema version ${nb.schemaVersion} is newer than supported version ${SCHEMA_VERSION}`
+      `Notebook schema version ${schemaVersion} is newer than supported version ${SCHEMA_VERSION}. Update Margin AI to open this notebook; the original data has not been changed.`
     );
   }
-  let v = nb.schemaVersion;
-  const doc = { ...nb };
-  while (v < SCHEMA_VERSION) {
-    switch (v) {
-      // case 1: ...upgrade v1 -> v2...; break;
-      default:
-        v = SCHEMA_VERSION;
-    }
+  switch (schemaVersion) {
+    // case 1: ...upgrade v1 -> v2...; break;
+    case 1:
+      break;
+    default:
+      throw new Error(
+        `Unsupported notebook schema version ${schemaVersion}. Only version 1 is supported. Open the original notebook in a compatible app and export a supported format.`
+      );
   }
-  doc.schemaVersion = SCHEMA_VERSION;
+  const doc = notebookSchema.parse(data);
   for (const page of doc.pages) {
     if (!page.layers.some((l) => l.author === "user")) {
       throw new Error(`Page ${page.id} has no user layer`);
