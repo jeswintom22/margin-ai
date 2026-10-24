@@ -505,7 +505,10 @@ export function useNotebook() {
         const ai = aiLayer(page);
         const bottom = (e: PageElement) =>
           e.type === "rect" ? e.y + e.h : e.type === "line" ? Math.max(e.y1, e.y2) : e.y;
-        const maxY = Math.max(0, ...ai.elements.map(bottom));
+        // Bottom of everything already on the page — AI answers *and* the
+        // user's ink — so new answers never overlap either.
+        const inkBottom = userLayer(page).strokes.map((s) => strokeBounds(s).maxY);
+        const maxY = Math.max(0, ...ai.elements.map(bottom), ...inkBottom);
         const flowOpts = { pageWidth: page.width, pageHeight: page.height, startY: maxY || undefined };
         const nearStrokes = near?.length ? page.layers.flatMap((l) => l.strokes).filter((s) => near.includes(s.id)) : [];
         const { pages: laidOut, groupId, placement } = nearStrokes.length

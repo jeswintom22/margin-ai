@@ -415,13 +415,21 @@ export function placeNearSelection(
 ): LayoutResult & { placement: Placement } {
   const pageW = opts.pageWidth ?? PAGE_WIDTH;
   const right = pageW - LAYOUT.marginX;
-  const below = { x: Math.max(LAYOUT.marginX, sel.minX), y: sel.maxY + 16 };
+  // `startY` is the bottom of content already on the page. If it reaches past
+  // the selection's top, earlier answers sit beside/below the work: stack
+  // under them instead of drawing on top.
+  const occupied = opts.startY ?? 0;
+  const crowded = occupied > sel.minY;
+  const below = {
+    x: Math.max(LAYOUT.marginX, sel.minX),
+    y: Math.max(sel.maxY + 16, crowded ? occupied + LAYOUT.blockGap : 0),
+  };
   if (right - below.x >= MIN_REGION_WIDTH) {
     const r = layoutAnswer(doc, { ...opts, region: { ...below, width: right - below.x } });
     if (r.pages.length === 1) return { ...r, placement: "below" };
   }
   const side = { x: sel.maxX + 20, y: sel.minY };
-  if (right - side.x >= MIN_REGION_WIDTH) {
+  if (!crowded && right - side.x >= MIN_REGION_WIDTH) {
     const r = layoutAnswer(doc, { ...opts, region: { ...side, width: right - side.x } });
     if (r.pages.length === 1) return { ...r, placement: "right" };
   }

@@ -19,10 +19,11 @@ import { verifyLines } from "@/lib/math/verify";
 import type { ChatMessage } from "./llm";
 
 const VISION_PROMPT =
-  "The user attached an image of their handwritten notebook. Transcribe the visible handwriting " +
-  "as accurately as possible, preserving mathematical notation. Clearly separate literal " +
-  "transcription from interpretation, explain ambiguous characters instead of guessing, and say " +
-  "when the image quality prevents reliable interpretation. Do not claim results are verified.";
+  "The attached image is the user's notebook page (or the part they selected). Read it and answer " +
+  "their question about it directly — solve, explain or comment on what is written. Do NOT output a " +
+  "transcription or separate 'literal transcription' / 'interpretation' sections unless the user " +
+  "explicitly asks what they wrote. If a symbol is truly ambiguous, state your reading in one short " +
+  "clause and move on. Do not claim results are verified.";
 import {
   answerDocumentSchema,
   ANSWER_BLOCK_TYPES,
@@ -64,7 +65,9 @@ Block fields:
 - check: lines: [{lineIndex, text?, status "correct"|"error"|"unclear", note?, correction?}] — only in tutor check mode
 - graph: title?, expressions: [{expr, label?}] (plain math like "6*x^2", variable x), xRange: [min,max], yRange?: [min,max] — never supply points
 
-Keep it concise. Do not claim results are verified or code is tested.`;
+The answer is handwritten into a notebook and read aloud, so keep it SHORT: usually 1-4 blocks,
+no filler, no restating the question, no "how I can help" lists, and omit followUpSuggestions
+unless genuinely useful. Do not claim results are verified or code is tested.`;
 
 export type TutorMode = "transcribe" | "check" | "finish" | "hint" | "graph";
 export const TUTOR_MODES: readonly TutorMode[] = ["transcribe", "check", "finish", "hint", "graph"];

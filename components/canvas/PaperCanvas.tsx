@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import type { NotebookPage, Point, Stroke } from "@/lib/document/types";
 import { onBackgroundLoaded, renderPage } from "@/lib/drawing/render";
-import { clientToPage, fitScale } from "@/lib/drawing/coords";
+import { clientToPage, fitWidthScale, maxScroll, pageOffset, PAGE_GAP } from "@/lib/drawing/coords";
 import { CanvasGesture } from "@/lib/drawing/gesture";
 import type { EditorTool } from "@/lib/document/types";
 import type { Rect } from "@/lib/drawing/geometry";
@@ -68,9 +68,20 @@ export default function PaperCanvas({
   }, [tool, color, strokeWidth]);
 
   const scaleRef = useRef(1);
+  /** Zoom multiplier over fit-to-width (1 = page width fills the view). */
+  const zoomRef = useRef(1);
+  const scrollRef = useRef(0);
+  const [zoomPct, setZoomPct] = useState(100);
 
-  // Keep canvas backing store sized to element × DPR. Page is rendered at a
-  // scale that fits the wrapper width (with a minimum so it stays usable).
+  const clampScroll = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const h = canvas.clientHeight;
+    scrollRef.current = Math.min(Math.max(0, scrollRef.current), maxScroll(h, page.height, scaleRef.current));
+  }, [page.height]);
+
+  // Keep canvas backing store sized to element × DPR. The page fills the
+  // view width (Xournal++-style) and scrolls vertically; zoom scales that.
   const resize = useCallback(() => {
     const canvas = canvasRef.current;
     const wrap = wrapRef.current;
@@ -82,14 +93,52 @@ export default function PaperCanvas({
     canvas.height = Math.round(cssH * dpr);
     canvas.style.width = `${cssW}px`;
     canvas.style.height = `${cssH}px`;
-    scaleRef.current = fitScale(cssW, cssH, page.width, page.height, cssW < 640 ? 0.98 : 0.92);
+    scaleRef.current = fitWidthScale(cssW, page.width, cssW < 640 ? 1 : 1.25) * zoomRef.current;
+    clampScroll();
     dirty.current = true;
-  }, [page.width, page.height]);
+  }, [page.width, clampScroll]);
+
+  /** Set zoom, keeping the page point under (clientY) fixed on screen. */
+  const setZoom = useCallback((z: number, anchorClientY?: number) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const before = scaleRef.current;
+    const ay = anchorClientY ?? rect.top + rect.height / 2;
+    const docY = clientToPage(0, ay, rect, page.width, page.height, before, scrollRef.current).y;
+    zoomRef.current = Math.min(3, Math.max(0.5, z));
+    resize();
+    const after = scaleRef.current;
+    // Keep docY at the same screen position (only matters when scrolling).
+    scrollRef.current = PAGE_GAP + docY * after - (ay - rect.top);
+    clampScroll();
+    setZoomPct(Math.round(zoomRef.current * 100));
+    dirty.current = true;
+  }, [page.width, page.height, resize, clampScroll]);
 
   const toPage = useCallback((clientX: number, clientY: number): Point => {
     const rect = canvasRef.current!.getBoundingClientRect();
-    return clientToPage(clientX, clientY, rect, page.width, page.height, scaleRef.current);
+    return clientToPage(clientX, clientY, rect, page.width, page.height, scaleRef.current, scrollRef.current);
   }, [page.width, page.height]);
+
+  // Wheel scrolls the page; Ctrl/⌘+wheel zooms. Native listener: React's
+  // onWheel is passive and can't preventDefault the browser zoom.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      if (e.ctrlKey || e.metaKey) {
+        setZoom(zoomRef.current * (e.deltaY < 0 ? 1.1 : 1 / 1.1), e.clientY);
+        return;
+      }
+      scrollRef.current += e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+      clampScroll();
+      dirty.current = true;
+    };
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", onWheel);
+  }, [setZoom, clampScroll]);
 
   const paint = useCallback(() => {
     const canvas = canvasRef.current;
@@ -98,8 +147,7 @@ export default function PaperCanvas({
     if (!ctx) return;
     const dpr = window.devicePixelRatio || 1;
     const scale = scaleRef.current;
-    const offsetX = (canvas.width / dpr - page.width * scale) / 2;
-    const offsetY = (canvas.height / dpr - page.height * scale) / 2;
+    const { x: offsetX, y: offsetY } = pageOffset(canvas.width / dpr, canvas.height / dpr, page.width, page.height, scale, scrollRef.current);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     // page shadow backdrop
@@ -211,6 +259,9 @@ export default function PaperCanvas({
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (e.button !== 0 && e.pointerType === "mouse") return;
     const p = toPage(e.clientX, e.clientY);
+    // Ink only starts on the paper; selection/eraser may start anywhere.
+    const inking = toolRef.current === "pen" || toolRef.current === "highlighter";
+    if (inking && (p.x < 0 || p.y < 0 || p.x > page.width || p.y > page.height)) return;
     if (e.pointerType === "pen") p.pressure = e.pressure || 0.5;
     // Ignored if another gesture is already active (e.g. a resting palm).
     if (!gestureRef.current?.begin(toolRef.current, e.pointerId, p, e.nativeEvent.timeStamp)) return;
@@ -248,7 +299,15 @@ export default function PaperCanvas({
   };
 
   return (
-    <div ref={wrapRef} className="h-full w-full overflow-hidden bg-neutral-200">
+    <div ref={wrapRef} className="relative h-full w-full overflow-hidden bg-[#e7e5e4]">
+      <div className="absolute bottom-4 left-4 z-10 flex items-center overflow-hidden rounded-md border border-neutral-300 bg-white text-xs text-neutral-700 shadow-sm" role="group" aria-label="Zoom">
+        <button type="button" aria-label="Zoom out" title="Zoom out (Ctrl+wheel)" onClick={() => setZoom(zoomRef.current / 1.2)}
+          className="h-7 w-7 hover:bg-neutral-100">−</button>
+        <button type="button" aria-label="Fit page width" title="Fit page width" onClick={() => { scrollRef.current = 0; setZoom(1); }}
+          className="h-7 min-w-12 border-x border-neutral-200 px-1.5 tabular-nums hover:bg-neutral-100">{zoomPct}%</button>
+        <button type="button" aria-label="Zoom in" title="Zoom in (Ctrl+wheel)" onClick={() => setZoom(zoomRef.current * 1.2)}
+          className="h-7 w-7 hover:bg-neutral-100">+</button>
+      </div>
       <canvas
         ref={canvasRef}
         className="block"

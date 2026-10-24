@@ -144,6 +144,14 @@ describe("placement beside the selection", () => {
     expect(r.pages[0].every((e) => e.type !== "text" || e.x >= 100)).toBe(true);
   });
 
+  it("stacks under earlier answers instead of drawing over them", () => {
+    // A previous answer already occupies y up to 400, below the selection.
+    const r = placeNearSelection(doc, { minX: 100, minY: 100, maxX: 300, maxY: 160 }, { startY: 400 });
+    expect(r.placement).toBe("below");
+    const ys = r.pages[0].filter((e) => e.type === "text").map((e) => (e.type === "text" ? e.y : 0));
+    expect(Math.min(...ys)).toBeGreaterThan(400);
+  });
+
   it("falls back to the right, then to the normal flow", () => {
     const right = placeNearSelection(doc, { minX: 60, minY: 200, maxX: 300, maxY: 1060 });
     expect(right.placement).toBe("right");
