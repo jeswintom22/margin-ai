@@ -43,7 +43,10 @@ write solutions onto a user's notes as a separate, non-destructive layer.
   before reaching the browser. The client renders blocks with `AnswerView.tsx`
   (paragraphs, headings, lists, callouts, math/derivations as LaTeX text, definitions,
   code, steps, tables, SVG diagrams, annotations). The API key is server-only. Answers
-  stay in the panel; nothing is written into the notebook yet.
+  stay in the panel until the user clicks **Write to Notebook**, which lays out the
+  answer into positioned `PageElement`s on the page's AI layer (new pages are created
+  as needed). AI content renders in a bundled handwriting font (Kalam, OFL); LaTeX is
+  shown as styled text; diagrams use the normalized SVG→page mapping.
 - **Known limitations:** No palm rejection (browsers don't expose reliable palm data);
   eraser removes whole strokes only; multi-tab editing warns but doesn't merge;
   no E2E browser tests yet. Assistant: no conversation memory (each question is
@@ -188,7 +191,7 @@ tests/                  Vitest suites (geometry, coords, history, document, stor
 
 ## Testing
 
-135 tests cover stroke geometry, coordinate conversion under resize, undo/redo,
+146 tests cover stroke geometry, coordinate conversion under resize, undo/redo,
 eraser transactions and gesture cancellation, validation/migration, user↔AI layer
 separation, IndexedDB save/reload, autosave, the LLM client and request protection,
 the answer schema (all block types, limits, invalid inputs), the generation service

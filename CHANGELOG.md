@@ -27,6 +27,20 @@ Record each meaningful project change during the event, newest first. Update thi
 - Validation: regression run before implementation reproduced 15 failures; targeted document/storage run then passed 29/29. After adding a v1-default compatibility test, `npm test` passed 68/68 across 8 suites; `npm run typecheck` and `npm run build` passed. Targeted ESLint on all four changed TypeScript files passed. `npm run lint` initially failed with five ref/purity errors in concurrently edited `hooks/useNotebook.ts`; a repeat after concurrent edits failed with one ref-access error and one unused-variable warning in `components/canvas/PaperCanvas.tsx`, outside this task. Tests report an existing Vite config CommonJS/ESM warning. Full-suite results reflect concurrent work in the shared tree.
 - Limitations: v1 is the only supported format, so there are no real migration transformations to test yet. Invalid/unsupported records also cause notebook listing to fail rather than being silently skipped. Loads do not persist normalized data. No UI or AI writing changes.
 
+## 2026-10-24T22:20:00+05:30 — AI answer insertion onto notebook pages
+
+- Changed: document schema v2 adds typed `PageElement` (text/line/rect with groupId+blockId)
+  to layers with a v1→v2 migration; `lib/ai/answerLayout.ts` (deterministic layout);
+  `drawElement` in render.ts; `insertElements`/`removeElements` history ops;
+  `insertAnswer`/`clearAIContent` in useNotebook; "Write to Notebook" in the panel;
+  bundled Kalam font (OFL).
+- Why: let users review a structured answer and write it onto the page in a
+  handwriting-like style, kept on the AI layer and removable without touching user ink.
+- Validation: `tsc --noEmit` clean; `eslint` clean; `vitest` 146/146 (11 new); `next build` clean.
+- Limitations: glyph widths are estimated (not measured), so wrapping may differ slightly
+  from rendered text; LaTeX renders as styled text; insertion undo is recorded on the
+  starting page's history.
+
 ## 2026-10-24T22:10:00+05:30 — Structured AI response pipeline
 
 - Changed: new `lib/ai/answerSchema.ts` (AnswerDocument zod schema + limits) and
