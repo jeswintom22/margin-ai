@@ -68,3 +68,5 @@ The 30-minute target is this repository's working convention. It does not replac
 - The notebook document model lives in `lib/document/` — keep `author` separation between `user` and `ai` layers; never merge AI strokes into the user layer.
 - Stroke coordinates are document-space (page units), not screen pixels; use `lib/drawing/coords.ts` for conversion.
 - Undo/redo is per page via `PageHistory` in `lib/history/`; new editing features should be implemented as reversible operations.
+- AI calls go through the server route `app/api/ask/route.ts` → `lib/ai/llm.ts`; never import `lib/ai/llm.ts` from client components or expose `LLM_*` env vars to the browser.
+- **Commit after every step** (owner preference): each completed sub-step of a task (e.g. a new module, a UI wiring change, tests, docs) gets its own focused commit once its checks pass. Do not batch a whole task into one commit at the end.
