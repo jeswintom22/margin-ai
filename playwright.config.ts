@@ -9,6 +9,7 @@ const PORT = 3100;
 
 export default defineConfig({
   testDir: "./e2e",
+  testIgnore: /.*\.mock\.spec\.ts/, // tutor walkthrough runs via playwright.mock.config.ts
   fullyParallel: false,
   workers: 1,
   retries: 0,

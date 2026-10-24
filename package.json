@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "test:e2e:mock": "playwright test -c playwright.mock.config.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

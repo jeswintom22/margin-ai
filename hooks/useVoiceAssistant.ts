@@ -47,7 +47,7 @@ export function useVoiceAssistant(nb: NotebookStore, opts: Opts) {
 
   const nbRef = useRef(nb);
   const optsRef = useRef(opts);
-  const runRef = useRef<(t: string) => void>(() => {});
+  const runRef = useRef<(t: string, e?: { lines?: string[] }) => void>(() => {});
   useEffect(() => {
     nbRef.current = nb;
     optsRef.current = opts;
@@ -65,12 +65,26 @@ export function useVoiceAssistant(nb: NotebookStore, opts: Opts) {
   const speak = useCallback((text: string, done: () => void) => {
     speakerRef.current ??= createSpeaker();
     const sp = speakerRef.current;
-    if (!sp) { done(); return; }
+    // No voices (headless test browsers) → skip speech; utterances would
+    // never end and would leave the assistant deaf forever.
+    if (!sp || window.speechSynthesis.getVoices().length === 0) { done(); return; }
     speaking.current = true;
+    // Mute the recognizer while the AI talks so it can't hear itself; the
+    // finish callback reopens it once the utterance ends.
+    recRef.current?.abort();
+    recRef.current = null;
     setState((s) => (s === "off" ? s : "speaking"));
-    sp.speak(text, 1, () => {
+    // If onend never fires (headless/audioless browsers), don't stay deaf.
+    const finish = () => {
+      if (!speaking.current) return;
       speaking.current = false;
       done();
+      startRec();
+    };
+    const watchdog = setTimeout(finish, 30_000);
+    sp.speak(text, 1, () => {
+      clearTimeout(watchdog);
+      finish();
     });
   }, []);
 
@@ -144,11 +158,10 @@ export function useVoiceAssistant(nb: NotebookStore, opts: Opts) {
     []
   );
 
-  /** One utterance → intent → action. Also the __margin test hook entrypoint. */
-  async function run(text: string) {
+  /** One utterance → intent → action. Also the __margin test hook entrypoint.
+   *  `extra.lines` supplies pre-transcribed student lines (tests only). */
+  async function run(text: string, extra?: { lines?: string[] }) {
       const store = nbRef.current;
-      // While the speaker is talking, transcripts may be its own voice. Ignore.
-      if (speaking.current) return;
       const intent = parseIntent(text, { hasSelection: store.selectedIds.length > 0 });
 
       if (intent.kind === "control") {
@@ -176,6 +189,7 @@ export function useVoiceAssistant(nb: NotebookStore, opts: Opts) {
         question,
         image,
         mode,
+        lines: extra?.lines,
         context: optsRef.current.getContext?.() ?? undefined,
       });
 
@@ -213,11 +227,12 @@ export function useVoiceAssistant(nb: NotebookStore, opts: Opts) {
     runRef.current = run;
   });
 
-  // Dev/test hook: drive the same code path without a microphone.
+  // `window.__margin.run(text)` drives the same path a spoken utterance
+  // would — it just skips the microphone. Used by Playwright; harmless in
+  // production since it only calls the app's own client-side code.
   useEffect(() => {
-    if (process.env.NODE_ENV === "production") return;
-    (window as unknown as { __margin?: { run: (t: string) => void } }).__margin = {
-      run: (t) => runRef.current(t),
+    (window as unknown as { __margin?: { run: (t: string, e?: { lines?: string[] }) => void } }).__margin = {
+      run: (t, e) => runRef.current(t, e),
     };
     return () => {
       delete (window as unknown as { __margin?: unknown }).__margin;

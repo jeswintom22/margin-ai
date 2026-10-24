@@ -55,15 +55,10 @@ async function eraseThrough(page: Page, yFrac = 0.4) {
   await page.mouse.up();
 }
 
-async function askAndInsert(page: Page) {
-  await page.getByRole("button", { name: "Assistant" }).click();
-  await page.getByRole("radio", { name: "Ask" }).click();
-  await page.getByLabel("Question for the assistant").fill("Explain something");
-  await page.getByLabel("Question for the assistant").press("Enter");
-  const write = page.getByRole("button", { name: "Write to Notebook" });
-  await expect(write).toBeVisible();
-  await write.click();
-  await expect(page.getByRole("button", { name: "Written" })).toBeDisabled();
+/** Drive the voice pipeline's run() path: same code a spoken question hits. */
+async function askAndInsert(page: Page, text = "Explain something") {
+  await page.evaluate((t) => (window as unknown as { __margin: { run: (s: string) => Promise<void> } }).__margin.run(t), text);
+  await expect(page.getByRole("status").getByText(/Written|Marks written/)).toBeVisible();
 }
 
 const undo = (page: Page) => page.getByRole("button", { name: "Undo (Ctrl+Z)" }).click();

@@ -68,3 +68,11 @@ describe("request protection", () => {
     await expect(readRequestJSON(request(body))).rejects.toMatchObject({ status: 400 });
   });
 });
+
+describe("image-sized bodies", () => {
+  it("accepts a request carrying a large (but allowed) image data URL", async () => {
+    const body = JSON.stringify({ question: "Read this", mode: "transcribe", image: "data:image/png;base64," + "A".repeat(2_000_000) });
+    const req = new Request("http://x/api/ask", { method: "POST", body, headers: { "content-type": "application/json" } });
+    await expect(readRequestJSON(req)).resolves.toMatchObject({ mode: "transcribe" });
+  });
+});

@@ -1,4 +1,11 @@
-export const MAX_REQUEST_BYTES = 32 * 1024;
+import { IMAGE_LIMITS } from "./imageInput";
+
+/**
+ * Body cap for /api/ask: the largest accepted image (base64 data URL) plus
+ * 64 KB for the question, notebook context and transcribed lines. Text-only
+ * requests are still bounded by the question/context validators.
+ */
+export const MAX_REQUEST_BYTES = IMAGE_LIMITS.base64Chars + 64 * 1024;
 
 export class RequestError extends Error {
   constructor(message: string, readonly status: number, readonly retryAfter?: number) {
