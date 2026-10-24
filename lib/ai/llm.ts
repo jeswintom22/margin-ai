@@ -46,13 +46,17 @@ export function readLLMConfig(env: Record<string, string | undefined> = process.
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 120000) {
     throw new LLMError("The assistant timeout is not configured correctly", 503);
   }
+  const baseUrl = (env.LLM_BASE_URL?.trim() || DEFAULT_BASE_URL).replace(/\/+$/, "");
+  const model = env.LLM_MODEL?.trim() || DEFAULT_MODEL;
+  // Every Gemini model accepts image input, so the main model doubles as the vision model.
+  const isGemini = /generativelanguage\.googleapis\.com/i.test(baseUrl);
   return {
     apiKey,
-    baseUrl: (env.LLM_BASE_URL?.trim() || DEFAULT_BASE_URL).replace(/\/+$/, ""),
-    model: env.LLM_MODEL?.trim() || DEFAULT_MODEL,
+    baseUrl,
+    model,
     timeoutMs,
     fastModel: env.LLM_FAST_MODEL?.trim() || undefined,
-    visionModel: env.LLM_VISION_MODEL?.trim() || undefined,
+    visionModel: env.LLM_VISION_MODEL?.trim() || (isGemini ? model : undefined),
     reasoningModel: env.LLM_REASONING_MODEL?.trim() || undefined,
   };
 }

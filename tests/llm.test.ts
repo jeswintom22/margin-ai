@@ -45,6 +45,12 @@ describe("readLLMConfig", () => {
     expect(c.model).toBe("gpt-4o-mini");
     expect(readLLMConfig({ LLM_API_KEY: "k", LLM_BASE_URL: "http://x/v1/" }).baseUrl).toBe("http://x/v1");
   });
+  it("uses the main model for vision on Gemini only, unless overridden", () => {
+    const gemini = "https://generativelanguage.googleapis.com/v1beta/openai/";
+    expect(readLLMConfig({ LLM_API_KEY: "k", LLM_BASE_URL: gemini, LLM_MODEL: "g" }).visionModel).toBe("g");
+    expect(readLLMConfig({ LLM_API_KEY: "k", LLM_BASE_URL: gemini, LLM_MODEL: "g", LLM_VISION_MODEL: "v" }).visionModel).toBe("v");
+    expect(readLLMConfig({ LLM_API_KEY: "k", LLM_MODEL: "g" }).visionModel).toBeUndefined();
+  });
 });
 
 describe("askLLM", () => {
