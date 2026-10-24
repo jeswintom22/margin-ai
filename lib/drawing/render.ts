@@ -1,4 +1,34 @@
-import type { NotebookPage, PaperStyle, Stroke } from "@/lib/document/types";
+import type { NotebookPage, PageElement, PaperStyle, Stroke } from "@/lib/document/types";
+
+export const HAND_FONT = "Kalam, 'Segoe Script', 'Comic Sans MS', cursive";
+export const MONO_FONT = "'Cascadia Mono', Consolas, 'Courier New', monospace";
+
+export function drawElement(ctx: CanvasRenderingContext2D, el: PageElement) {
+  if (el.type === "text") {
+    ctx.fillStyle = el.color ?? "#1d4ed8";
+    ctx.font = `${el.bold ? "700 " : ""}${el.size}px ${el.font === "mono" ? MONO_FONT : HAND_FONT}`;
+    ctx.textBaseline = "alphabetic";
+    ctx.fillText(el.text, el.x, el.y);
+  } else if (el.type === "line") {
+    ctx.strokeStyle = el.color ?? "#334155";
+    ctx.lineWidth = el.width ?? 1.5;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(el.x1, el.y1);
+    ctx.lineTo(el.x2, el.y2);
+    ctx.stroke();
+  } else {
+    if (el.fill) {
+      ctx.fillStyle = el.fill;
+      ctx.fillRect(el.x, el.y, el.w, el.h);
+    }
+    if (el.stroke) {
+      ctx.strokeStyle = el.stroke;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(el.x, el.y, el.w, el.h);
+    }
+  }
+}
 
 export const RULE_SPACING = 32;
 export const GRID_SPACING = 32;
@@ -90,6 +120,7 @@ export function renderPage(
   drawPaper(ctx, page.width, page.height, page.paperStyle);
   for (const layer of page.layers) {
     if (!layer.visible) continue;
+    for (const e of layer.elements ?? []) drawElement(ctx, e);
     for (const s of layer.strokes) drawStroke(ctx, s);
   }
   if (inProgress) drawStroke(ctx, inProgress);

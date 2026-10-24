@@ -24,3 +24,14 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+@font-face {
+  font-family: "Kalam";
+  src: url("/fonts/Kalam-Regular.woff2") format("woff2");
+  font-weight: 400;
+}
+@font-face {
+  font-family: "Kalam";
+  src: url("/fonts/Kalam-Bold.woff2") format("woff2");
+  font-weight: 700;
+}

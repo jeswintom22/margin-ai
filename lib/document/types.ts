@@ -13,7 +13,7 @@
  * - `schemaVersion` enables migrations for future fields (text objects, images, math).
  */
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /** Intrinsic page size in document units (A4 at 96dpi, rounded). */
 export const PAGE_WIDTH = 794;
@@ -48,12 +48,60 @@ export type EraserOperation = {
 
 export type LayerAuthor = "user" | "ai";
 
+/**
+ * Typed, positioned AI-authored content — the renderable output of laying out
+ * an AnswerDocument. Semantic text stays text (not fake pen strokes) so it can
+ * be re-rendered, edited, or removed cleanly. Every element carries the
+ * insertion `groupId` and its source `blockId` for provenance.
+ */
+export type ElementFont = "hand" | "mono";
+
+type ElementBase = {
+  id: string;
+  /** Insertion operation this element belongs to. */
+  groupId: string;
+  /** Id of the AnswerDocument block this element was laid out from. */
+  blockId: string;
+};
+
+export type PageElement =
+  | (ElementBase & {
+      type: "text";
+      x: number;
+      y: number;
+      text: string;
+      font: ElementFont;
+      size: number;
+      bold?: boolean;
+      color?: string;
+    })
+  | (ElementBase & {
+      type: "line";
+      x1: number;
+      y1: number;
+      x2: number;
+      y2: number;
+      width?: number;
+      color?: string;
+    })
+  | (ElementBase & {
+      type: "rect";
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+      fill?: string;
+      stroke?: string;
+    });
+
 export type NotebookLayer = {
   id: string;
   name: string;
   author: LayerAuthor;
   visible: boolean;
   strokes: Stroke[];
+  /** Positioned AI-authored elements; always empty on user layers today. */
+  elements: PageElement[];
 };
 
 export type PaperStyle = "blank" | "ruled" | "grid";
@@ -112,7 +160,7 @@ export function createStroke(
 }
 
 export function createLayer(name: string, author: LayerAuthor): NotebookLayer {
-  return { id: newId(), name, author, visible: true, strokes: [] };
+  return { id: newId(), name, author, visible: true, strokes: [], elements: [] };
 }
 
 export function createPage(title: string, paperStyle: PaperStyle = "ruled"): NotebookPage {
