@@ -16,6 +16,8 @@ export interface DictationResult {
   text: string;
   /** 0..1 when the engine reports it. */
   confidence?: number;
+  /** False for interim (in-progress) results; only fire actions on final ones. */
+  final?: boolean;
 }
 
 /** Minimal engine interface — implemented by WebSpeech or a future provider. */
@@ -49,7 +51,7 @@ export function speechSupport(win?: unknown): SpeechSupport {
  */
 export function createDictation(
   h: DictationHandlers,
-  opts: { lang?: string } = {}
+  opts: { lang?: string; continuous?: boolean; interim?: boolean } = {}
 ): SpeechRecognizer | null {
   const w = window as unknown as SR;
   const Ctor = w.SpeechRecognition ?? w.webkitSpeechRecognition;
@@ -61,14 +63,25 @@ export function createDictation(
     start(): void; stop(): void; abort(): void;
   };
   rec.lang = opts.lang ?? "en-US";
-  rec.interimResults = false;
-  rec.continuous = false;
+  rec.continuous = !!opts.continuous;
+  rec.interimResults = !!opts.interim || !!opts.continuous;
   rec.onresult = (e) => {
-    const res = (e as { results?: { [k: number]: { transcript?: string; confidence?: number } | undefined }[] }).results;
-    const alt = res?.[res.length - 1]?.[0];
-    const text = alt?.transcript?.trim();
-    if (text) h.onResult({ text, confidence: alt?.confidence });
-    else h.onError("no-speech");
+    type Result = { transcript?: string; confidence?: number } | undefined;
+    const res = e as {
+      resultIndex?: number;
+      results?: { isFinal?: boolean; [k: number]: Result }[];
+    };
+    // With continuous=true the results list accumulates; only new ones matter.
+    const start = opts.continuous ? (res.resultIndex ?? 0) : (res.results?.length ?? 1) - 1;
+    let fired = false;
+    for (let i = start; i < (res.results?.length ?? 0); i++) {
+      const alt = res.results?.[i]?.[0];
+      const text = alt?.transcript?.trim();
+      if (!text) continue;
+      fired = true;
+      h.onResult({ text, confidence: alt?.confidence, final: res.results?.[i]?.isFinal !== false });
+    }
+    if (!fired && !opts.continuous) h.onError("no-speech");
   };
   rec.onend = () => h.onEnd();
   rec.onerror = (e) => {
