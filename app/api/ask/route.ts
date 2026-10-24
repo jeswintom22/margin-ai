@@ -16,10 +16,13 @@ export async function POST(request: Request) {
     if (b?.mode !== undefined && !mode) throw new RequestError("Unknown tutor mode", 400);
     const lines = Array.isArray(b?.lines) && b.lines.every((l) => typeof l === "string") ? (b.lines as string[]) : undefined;
     if (b?.lines !== undefined && !lines) throw new RequestError("lines must be an array of strings", 400);
+    // Tutor "check" is the reasoning-heavy action; everything else defaults to fast.
     const capability =
       b?.capability === "fast" || b?.capability === "vision" || b?.capability === "reasoning"
         ? b.capability
-        : undefined;
+        : mode === "check"
+          ? "reasoning"
+          : undefined;
     const answer = await generateAnswer(
       (question as string).trim(),
       readLLMConfig(),

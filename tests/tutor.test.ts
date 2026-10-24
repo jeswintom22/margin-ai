@@ -55,6 +55,19 @@ describe("tutor generation", () => {
     await expect(generateAnswer("q", config, vi.fn(), undefined, { mode: "transcribe" })).rejects.toMatchObject({ status: 400 });
   });
 
+  it("accepts an ink image instead of lines for tutor actions", async () => {
+    const fetchMock = vi.fn().mockImplementation(reply(checkDoc(["correct"])));
+    const image = `data:image/png;base64,${PNG_1PX}`;
+    const doc = await generateAnswer("Check my work", config, fetchMock, undefined, { mode: "check", image });
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const system: string = body.messages[0].content;
+    expect(system).toContain("MODE: check");
+    expect(system).toContain("The student's work is in the attached image");
+    // Multimodal user content (text part + image part).
+    expect(Array.isArray(body.messages.at(-1).content)).toBe(true);
+    expect(doc.blocks[0].type).toBe("check");
+  });
+
   it("routes transcription to the vision model with the image", async () => {
     const fetchMock = vi.fn().mockImplementation(reply({ schemaVersion: 1, title: "t", blocks: [{ id: "b1", type: "steps", items: ["a = 1"] }] }));
     await generateAnswer("Transcribe", config, fetchMock, undefined, { mode: "transcribe", image: `data:image/png;base64,${PNG_1PX}` });

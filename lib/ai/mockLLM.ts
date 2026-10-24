@@ -28,7 +28,10 @@ export function mockCompletion(opts: ChatOptions): ChatResult {
   const system = textOf(opts.messages.find((m) => m.role === "system")?.content ?? "");
   const user = textOf(opts.messages.filter((m) => m.role === "user").at(-1)?.content ?? "");
   const mode = /MODE: (\w+)/.exec(system)?.[1];
-  const lines = studentLines(user);
+  const parsedLines = studentLines(user);
+  // Tutor modes can arrive with only an ink image (no text lines); the mock
+  // "reads" the image as the fixed demo transcription.
+  const lines = parsedLines.length ? parsedLines : mode === "transcribe" ? [] : MOCK_TRANSCRIPTION;
   const defs = lines.map(parseLine).filter((p) => p?.kind === "def");
 
   let content: string;
