@@ -21,6 +21,7 @@ type Props = {
   onEraseAt: (x: number, y: number, radius: number) => boolean;
   onEraseEnd: () => void;
   onSelectRect: (rect: Rect) => void;
+  onSelectLasso: (poly: Point[]) => void;
 };
 
 const ERASER_RADIUS = 14;
@@ -32,7 +33,7 @@ const ERASER_RADIUS = 14;
  */
 export default function PaperCanvas({
   page, tool, color, strokeWidth, version, selectedIds,
-  onCommitStroke, onEraseBegin, onEraseAt, onEraseEnd, onSelectRect,
+  onCommitStroke, onEraseBegin, onEraseAt, onEraseEnd, onSelectRect, onSelectLasso,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -40,10 +41,10 @@ export default function PaperCanvas({
   const dirty = useRef(true);
 
   // Latest callbacks, read by the gesture's event handlers at event time.
-  const handlers = useRef({ onCommitStroke, onEraseBegin, onEraseAt, onEraseEnd, onSelectRect });
+  const handlers = useRef({ onCommitStroke, onEraseBegin, onEraseAt, onEraseEnd, onSelectRect, onSelectLasso });
   useEffect(() => {
-    handlers.current = { onCommitStroke, onEraseBegin, onEraseAt, onEraseEnd, onSelectRect };
-  }, [onCommitStroke, onEraseBegin, onEraseAt, onEraseEnd, onSelectRect]);
+    handlers.current = { onCommitStroke, onEraseBegin, onEraseAt, onEraseEnd, onSelectRect, onSelectLasso };
+  }, [onCommitStroke, onEraseBegin, onEraseAt, onEraseEnd, onSelectRect, onSelectLasso]);
 
   // Created on mount (before any pointer input can arrive); never read during render.
   const gestureRef = useRef<CanvasGesture | null>(null);
@@ -54,6 +55,7 @@ export default function PaperCanvas({
       onEraseAt: (x, y) => handlers.current.onEraseAt(x, y, ERASER_RADIUS),
       onEraseEnd: () => handlers.current.onEraseEnd(),
       onSelectCommit: (r) => handlers.current.onSelectRect(r),
+      onLassoCommit: (poly) => handlers.current.onSelectLasso(poly),
     });
   }, []);
   const toolRef = useRef(tool);
@@ -153,6 +155,21 @@ export default function PaperCanvas({
       ctx.setLineDash([5 / scale, 4 / scale]);
       ctx.fillRect(r.x, r.y, r.w, r.h);
       ctx.strokeRect(r.x, r.y, r.w, r.h);
+      ctx.restore();
+    }
+
+    // in-progress lasso loop
+    if (gesture?.active && gesture.activeTool === "lasso" && gesture.points.length > 1) {
+      ctx.save();
+      ctx.strokeStyle = "#3b82f6";
+      ctx.fillStyle = "rgba(59,130,246,0.06)";
+      ctx.lineWidth = 1.5 / scale;
+      ctx.setLineDash([6 / scale, 4 / scale]);
+      ctx.beginPath();
+      gesture.points.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
       ctx.restore();
     }
   }, [page, selectedIds]);

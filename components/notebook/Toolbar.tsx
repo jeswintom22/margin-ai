@@ -94,6 +94,7 @@ export default function Toolbar(p: Props) {
         <ToolButton active={p.tool === "highlighter"} label="Highlt" title="Highlighter (H)" onClick={() => p.onTool("highlighter")}>🖍️</ToolButton>
         <ToolButton active={p.tool === "eraser"} label="Erase" title="Eraser (E)" onClick={() => p.onTool("eraser")}>⌫</ToolButton>
         <ToolButton active={p.tool === "select"} label="Select" title="Select (S)" onClick={() => p.onTool("select")}>⬚</ToolButton>
+        <ToolButton active={p.tool === "lasso"} label="Lasso" title="Lasso select (L)" onClick={() => p.onTool("lasso")}>➰</ToolButton>
       </div>
 
       <div className="mx-1 h-6 w-px bg-neutral-200" />

@@ -1,3 +1,4 @@
+import { mockCompletion } from "./mockLLM";
 /**
  * Minimal server-side client for one OpenAI-compatible chat completions API.
  * Server-only: reads the API key from the environment. Never import from client code.
@@ -12,6 +13,8 @@ export type LLMConfig = {
   fastModel?: string;
   visionModel?: string;
   reasoningModel?: string;
+  /** Dev/test-only deterministic provider (LLM_MOCK=true outside production). */
+  mock?: boolean;
 };
 
 /** Error with an HTTP status suitable for returning to the browser. */
@@ -34,6 +37,9 @@ const SYSTEM_PROMPT =
   "Answer clearly in plain text. Keep answers short unless the user asks for detail.";
 
 export function readLLMConfig(env: Record<string, string | undefined> = process.env): LLMConfig {
+  if (env.LLM_MOCK === "true" && env.NODE_ENV !== "production") {
+    return { apiKey: "mock", baseUrl: "mock:", model: "mock", visionModel: "mock-vision", reasoningModel: "mock-reasoning", timeoutMs: 30000, mock: true };
+  }
   const apiKey = env.LLM_API_KEY?.trim();
   if (!apiKey) throw new LLMError("The assistant is not configured: LLM_API_KEY is missing", 503);
   const timeoutMs = env.LLM_TIMEOUT_MS ? Number(env.LLM_TIMEOUT_MS) : 30000;
@@ -84,6 +90,7 @@ export async function chatCompletion(
   opts: ChatOptions,
   fetchImpl: typeof fetch = fetch
 ): Promise<ChatResult> {
+  if (config.mock) return mockCompletion(opts);
   let responseFormat: Record<string, unknown> | undefined;
   if (opts.responseFormat === "json_schema") {
     responseFormat = {

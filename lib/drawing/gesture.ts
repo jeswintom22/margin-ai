@@ -1,7 +1,7 @@
 import type { Point } from "@/lib/document/types";
 import type { Rect } from "./geometry";
 
-export type GestureTool = "pen" | "highlighter" | "eraser" | "select";
+export type GestureTool = "pen" | "highlighter" | "eraser" | "select" | "lasso";
 
 /**
  * How a pointer gesture ended:
@@ -21,12 +21,17 @@ export interface GestureEvents {
   onEraseAt(x: number, y: number): void;
   onEraseEnd(): void;
   onSelectCommit(rect: Rect): void;
+  /** Closed lasso loop (page units), at least 3 points. */
+  onLassoCommit?(poly: Point[]): void;
 }
 
 export type GestureSample = { x: number; y: number; pressure?: number; stamp: number };
 
 const MIN_POINT_DIST = 0.6; // page units; skips sub-pixel jitter
 const MIN_SELECT_SIZE = 2;
+/** A loop whose end is this close to its start is closed exactly. */
+export const LASSO_CLOSE_DIST = 24;
+const MIN_LASSO_POINTS = 3;
 
 /**
  * Tracks one pointer gesture (pointerdown → moves → up/cancel) independently of
@@ -71,6 +76,8 @@ export class CanvasGesture {
     } else if (tool === "select") {
       this.selStart = { x: p.x, y: p.y };
       this.selection = { x: p.x, y: p.y, w: 0, h: 0 };
+    } else if (tool === "lasso") {
+      this.points.push({ x: p.x, y: p.y });
     } else {
       this.points.push({ ...p, time: 0 });
     }
@@ -100,7 +107,8 @@ export class CanvasGesture {
     for (const s of samples) {
       const last = this.points[this.points.length - 1];
       if (last && Math.hypot(s.x - last.x, s.y - last.y) < MIN_POINT_DIST) continue;
-      this.points.push({ x: s.x, y: s.y, pressure: s.pressure, time: s.stamp - this.startStamp });
+      if (this.tool === "lasso") this.points.push({ x: s.x, y: s.y });
+      else this.points.push({ x: s.x, y: s.y, pressure: s.pressure, time: s.stamp - this.startStamp });
       changed = true;
     }
     return changed;
@@ -124,6 +132,8 @@ export class CanvasGesture {
       if (!canceled && sel && sel.w > MIN_SELECT_SIZE && sel.h > MIN_SELECT_SIZE) {
         this.events.onSelectCommit(sel);
       }
+    } else if (tool === "lasso") {
+      if (!canceled && pts.length >= MIN_LASSO_POINTS) this.events.onLassoCommit?.(closeLasso(pts));
     } else if (!canceled && pts.length > 0) {
       this.events.onStrokeCommit(pts, tool);
     }
@@ -137,4 +147,14 @@ export class CanvasGesture {
     this.selection = null;
     this.selStart = null;
   }
+}
+
+/**
+ * Close a lasso loop: if the end is near the start, snap it shut; otherwise
+ * the ring is implicitly closed by the polygon test (last → first edge).
+ */
+export function closeLasso(pts: Point[]): Point[] {
+  const a = pts[0], b = pts[pts.length - 1];
+  if (pts.length > 2 && Math.hypot(a.x - b.x, a.y - b.y) <= LASSO_CLOSE_DIST) return [...pts.slice(0, -1), { ...a }];
+  return pts.slice();
 }

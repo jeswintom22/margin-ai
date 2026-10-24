@@ -26,13 +26,16 @@ type Props = {
   hasSelection: boolean;
   /** Capture the selected ink region as a PNG data URL (null if none). */
   captureSelection?: () => { dataUrl: string; width: number; height: number } | null;
+  /** Tutor workflow UI, shown when the Tutor mode is selected. */
+  tutor?: React.ReactNode;
 };
 
 /**
  * Minimal assistant: asks /api/ask and lists the exchanges for this session.
  * Exchanges are kept in memory only; they are not written into the notebook yet.
  */
-export default function AssistantPanel({ onClose, onInsert, getContext, hasSelection, captureSelection }: Props) {
+export default function AssistantPanel({ onClose, onInsert, getContext, hasSelection, captureSelection, tutor }: Props) {
+  const [mode, setMode] = useState<"ask" | "tutor">(tutor ? "tutor" : "ask");
   const [pendingImage, setPendingImage] = useState<{ dataUrl: string; width: number; height: number } | null>(null);
   const [withContext, setWithContext] = useState(false);
   // voice
@@ -134,6 +137,22 @@ export default function AssistantPanel({ onClose, onInsert, getContext, hasSelec
     >
       <div className="flex items-center justify-between px-3 py-2">
         <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Assistant</h2>
+        {tutor && (
+          <div role="radiogroup" aria-label="Assistant mode" className="flex rounded-md border border-neutral-300 text-xs">
+            {(["tutor", "ask"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                role="radio"
+                aria-checked={mode === m}
+                onClick={() => setMode(m)}
+                className={`px-2 py-0.5 ${mode === m ? "bg-neutral-900 text-white" : "text-neutral-600 hover:bg-neutral-100"}`}
+              >
+                {m === "tutor" ? "Tutor" : "Ask"}
+              </button>
+            ))}
+          </div>
+        )}
         <button
           type="button"
           aria-label="Close assistant"
@@ -143,6 +162,8 @@ export default function AssistantPanel({ onClose, onInsert, getContext, hasSelec
           ×
         </button>
       </div>
+
+      {mode === "tutor" && tutor}
 
       <ol className="flex-1 space-y-3 overflow-y-auto px-3 pb-3" aria-live="polite">
         {exchanges.length === 0 && (

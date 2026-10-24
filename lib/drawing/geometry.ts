@@ -104,3 +104,30 @@ export function simplifyPoints(points: Point[], epsilon = 0.5): Point[] {
   }
   return points.filter((_, i) => keep[i]);
 }
+
+/** Ray-casting point-in-polygon (polygon given as an implicitly closed ring). */
+export function pointInPolygon(x: number, y: number, poly: { x: number; y: number }[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i], b = poly[j];
+    if ((a.y > y) !== (b.y > y) && x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
+/**
+ * Lasso hit test: a stroke is selected when any of its points lies inside the
+ * loop, or when the loop encloses the stroke's bounding-box centre.
+ */
+export function strokeInLasso(stroke: Stroke, poly: { x: number; y: number }[]): boolean {
+  if (poly.length < 3) return false;
+  if (stroke.points.some((p) => pointInPolygon(p.x, p.y, poly))) return true;
+  const b = strokeBounds(stroke);
+  return pointInPolygon((b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2, poly);
+}
+
+export function polygonBounds(poly: { x: number; y: number }[]): Rect {
+  const xs = poly.map((p) => p.x), ys = poly.map((p) => p.y);
+  const x = Math.min(...xs), y = Math.min(...ys);
+  return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+}

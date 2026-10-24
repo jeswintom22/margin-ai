@@ -140,9 +140,10 @@ export function revert(page: NotebookPage, op: Operation) {
   }
   if (op.type === "setLayerVisibility") layerOf(page, op.layerId).visible = op.from;
   if (op.type === "removeElements") {
+    // Indices are original positions; re-insert in ascending order so each
+    // element lands back exactly where it was (works for non-contiguous sets).
     const layer = layerOf(page, op.layerId);
-    for (let i = op.removed.length - 1; i >= 0; i--) {
-      const r = op.removed[i];
+    for (const r of [...op.removed].sort((a, b) => a.index - b.index)) {
       layer.elements.splice(Math.min(r.index, layer.elements.length), 0, r.element);
     }
   }

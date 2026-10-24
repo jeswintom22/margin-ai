@@ -160,7 +160,40 @@ function BlockView({ block }: { block: AnswerBlock }) {
           )}
         </p>
       );
+    case "check":
+      return (
+        <ol className="space-y-1 text-sm" aria-label="Line-by-line check">
+          {block.lines.map((l) => (
+            <li key={l.lineIndex} className="flex flex-wrap items-baseline gap-1.5">
+              <span className={`font-semibold ${l.status === "correct" ? "text-green-700" : l.status === "error" ? "text-red-700" : "text-amber-700"}`}>
+                {l.status === "correct" ? "✓ Correct" : l.status === "error" ? "✗ Error" : "? Unclear"}
+              </span>
+              <span className="text-neutral-500">line {l.lineIndex + 1}</span>
+              {l.text && <code className="font-mono text-xs">{l.text}</code>}
+              <VerifyBadge status={l.verification} />
+              {l.note && <span className="w-full text-neutral-700">{l.note}</span>}
+              {l.correction && <span className="w-full font-mono text-xs text-neutral-700">→ {l.correction}</span>}
+            </li>
+          ))}
+        </ol>
+      );
+    case "graph":
+      return (
+        <p className="text-sm text-neutral-700">
+          Graph{block.title ? `: ${block.title}` : ""} of{" "}
+          {block.expressions.map((e) => e.label ? `${e.label} = ${e.expr}` : e.expr).join(", ")} for x in [{block.xRange[0]}, {block.xRange[1]}]
+          <span className="text-neutral-500"> — write it to the notebook to plot.</span>
+        </p>
+      );
   }
+}
+
+/** Only "verified" comes from a deterministic check; everything else says so. */
+export function VerifyBadge({ status }: { status?: "verified" | "mismatch" | "unknown" }) {
+  if (!status) return null;
+  const cls = status === "verified" ? "border-green-300 bg-green-50 text-green-800" : "border-neutral-300 bg-neutral-50 text-neutral-600";
+  const text = status === "verified" ? "Verified" : status === "mismatch" ? "Not verified: check failed" : "Not verified";
+  return <span className={`rounded border px-1 text-[10px] font-medium ${cls}`}>{text}</span>;
 }
 
 function List({ items, numbered }: { items: ListItem[]; numbered: boolean }) {

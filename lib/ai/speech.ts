@@ -152,6 +152,10 @@ function blockToSpeech(b: AnswerBlock, out: string[]) {
     case "table": out.push(`Table with ${b.headers.length} columns and ${b.rows.length} rows.`); break;
     case "diagram": out.push(b.title ? `Diagram: ${b.title}.` : "A diagram."); break;
     case "annotation": out.push(`Note: ${b.text}`); break;
+    case "check":
+      b.lines.forEach((l) => out.push(`Line ${l.lineIndex + 1}: ${l.status === "correct" ? "correct" : l.status === "error" ? `error. ${l.note ?? ""}` : "unclear"}${l.verification === "verified" ? ", verified" : ""}.`));
+      break;
+    case "graph": out.push(`Graph of ${b.expressions.map((e) => latexToSpeech(e.expr)).join(" and ")}, x from ${b.xRange[0]} to ${b.xRange[1]}.`); break;
   }
 }
 

@@ -134,7 +134,7 @@ export type NotebookMeta = {
   updatedAt: number;
 };
 
-export type EditorTool = "pen" | "highlighter" | "eraser" | "select";
+export type EditorTool = "pen" | "highlighter" | "eraser" | "select" | "lasso";
 
 let counter = 0;
 /** Stable unique id: timestamp + counter + random suffix. */

@@ -1,5 +1,10 @@
 import { newId, PAGE_HEIGHT, PAGE_WIDTH, type PageElement } from "@/lib/document/types";
 import type { AnswerBlock, AnswerDocument, ListItem } from "./answerSchema";
+import { toUnicodeMath } from "@/lib/math/unicodeMath";
+import { sampleCurves, autoYRange, niceTicks } from "@/lib/math/graph";
+
+/** Replace inline $...$ math in prose with readable Unicode. */
+const inlineMath = (t: string) => t.replace(/\$([^$]+)\$/g, (_, m: string) => toUnicodeMath(m));
 
 /**
  * Deterministic layout: AnswerDocument → positioned PageElements per page.
@@ -74,20 +79,24 @@ class Layouter {
   pages: PageElement[][] = [[]];
   page = 0;
   y: number = LAYOUT.marginTop;
+  left: number = LAYOUT.marginX;
+  width: number;
 
   constructor(
     private doc: AnswerDocument,
     private groupId: string,
     private pageW: number,
     private pageH: number
-  ) {}
+  ) {
+    this.width = pageW - LAYOUT.marginX * 2;
+  }
 
   private emit(el: ElementInput) {
     this.pages[this.page].push({ ...el, id: newId(), groupId: this.groupId });
   }
 
   get usableW() {
-    return this.pageW - LAYOUT.marginX * 2;
+    return this.width;
   }
 
   get limitY() {
@@ -98,6 +107,8 @@ class Layouter {
     this.page++;
     this.pages.push([]);
     this.y = LAYOUT.marginTop;
+    this.left = LAYOUT.marginX;
+    this.width = this.pageW - LAYOUT.marginX * 2;
   }
 
   /** Ensure `h` fits on this page; start a new page if not. */
@@ -112,7 +123,7 @@ class Layouter {
   /** Emit wrapped lines; may split across pages. */
   private paragraph(t: string, x: number, size: number, font: "hand" | "mono", bold: boolean, blockId: string, color = AI_INK, width?: number) {
     const lh = size * LAYOUT.lineHeight;
-    const w = width ?? this.pageW - LAYOUT.marginX - x;
+    const w = width ?? this.left + this.width - x;
     for (const line of wrapText(t, w, size, font === "mono")) {
       this.need(lh);
       this.text(line, x, this.y, size, font, bold, blockId, color);
@@ -127,10 +138,10 @@ class Layouter {
   private listItems(items: ListItem[], depth: number, numbered: boolean, blockId: string) {
     items.forEach((item, i) => {
       const bullet = numbered ? `${i + 1}.` : "•";
-      const x = LAYOUT.marginX + depth * LAYOUT.indent;
+      const x = this.left + depth * LAYOUT.indent;
       const tx = x + LAYOUT.indent;
       const lh = LAYOUT.bodySize * LAYOUT.lineHeight;
-      const lines = wrapText(item.text, this.pageW - LAYOUT.marginX - tx, LAYOUT.bodySize);
+      const lines = wrapText(inlineMath(item.text), this.left + this.width - tx, LAYOUT.bodySize);
       lines.forEach((line, li) => {
         this.need(lh);
         if (li === 0) this.text(bullet, x, this.y, LAYOUT.bodySize, "hand", false, blockId);
@@ -143,7 +154,7 @@ class Layouter {
 
   private block(b: AnswerBlock) {
     const S = LAYOUT;
-    const x0 = S.marginX;
+    const x0 = this.left;
     switch (b.type) {
       case "heading": {
         const scale = S.headingScale[Math.min(b.level, 3) - 1];
@@ -153,7 +164,7 @@ class Layouter {
         break;
       }
       case "paragraph":
-        this.paragraph(b.text, x0, S.bodySize, "hand", false, b.id);
+        this.paragraph(inlineMath(b.text), x0, S.bodySize, "hand", false, b.id);
         this.gap();
         break;
       case "list":
@@ -182,7 +193,7 @@ class Layouter {
       case "derivation": {
         const steps = b.type === "math" ? [{ latex: b.latex }] : b.steps;
         for (const s of steps) {
-          const lines = wrapText(s.latex, this.usableW - 40, S.bodySize, true);
+          const lines = wrapText(toUnicodeMath(s.latex), this.usableW - 40, S.bodySize, true);
           this.need(lines.length * S.bodySize * S.lineHeight);
           for (const line of lines) {
             const w = measureText(line, S.bodySize, true);
@@ -278,6 +289,19 @@ class Layouter {
         this.gap();
         break;
       }
+      case "check": {
+        for (const l of b.lines) {
+          const mark = l.status === "correct" ? "✓" : l.status === "error" ? "✗" : "?";
+          const color = l.status === "correct" ? "#16a34a" : l.status === "error" ? "#dc2626" : "#d97706";
+          const v = l.verification === "verified" ? " (verified)" : "";
+          this.paragraph(`${mark} line ${l.lineIndex + 1}${v}${l.note ? ` — ${l.note}` : ""}${l.correction ? ` → ${toUnicodeMath(l.correction)}` : ""}`, x0, S.bodySize, "hand", false, b.id, color);
+        }
+        this.gap();
+        break;
+      }
+      case "graph":
+        this.graph(b);
+        break;
       case "annotation": {
         const lines = wrapText(`◈ ${b.text}`, this.usableW - 20, S.bodySize * 0.9);
         for (const line of lines) {
@@ -291,9 +315,58 @@ class Layouter {
     }
   }
 
+  /** Axes, ticks, sampled curves and legend — all computed, never model points. */
+  private graph(b: Extract<AnswerBlock, { type: "graph" }>) {
+    const S = LAYOUT;
+    const boxH = 200, w = Math.min(this.width, 420);
+    const { curves, errors } = sampleCurves(b.expressions, b.xRange);
+    const [y0, y1] = autoYRange(curves.map((c) => c.segments), b.yRange);
+    const legendH = (curves.length + errors.length) * 16 + (b.title ? 20 : 0);
+    this.need(boxH + legendH + 24);
+    const left = this.left, top = this.y + (b.title ? 20 : 0);
+    if (b.title) this.text(b.title, left, this.y + 14, S.bodySize * 0.9, "hand", true, b.id);
+    const [x0, x1] = b.xRange;
+    const px = (x: number) => left + 30 + ((x - x0) / (x1 - x0)) * (w - 40);
+    const py = (y: number) => top + boxH - 20 - ((y - y0) / (y1 - y0)) * (boxH - 30);
+    const axisColor = "#334155";
+    const ax = Math.min(Math.max(0, x0), x1), ay = Math.min(Math.max(0, y0), y1);
+    this.emit({ type: "line", x1: px(x0), y1: py(ay), x2: px(x1), y2: py(ay), width: 1.2, color: axisColor, blockId: b.id });
+    this.emit({ type: "line", x1: px(ax), y1: py(y0), x2: px(ax), y2: py(y1), width: 1.2, color: axisColor, blockId: b.id });
+    for (const t of niceTicks(x0, x1)) {
+      this.emit({ type: "line", x1: px(t), y1: py(ay) - 3, x2: px(t), y2: py(ay) + 3, width: 1, color: axisColor, blockId: b.id });
+      this.text(String(+t.toFixed(4)), px(t) - 6, py(ay) + 14, 10, "hand", false, b.id, axisColor);
+    }
+    for (const t of niceTicks(y0, y1, 5)) {
+      this.emit({ type: "line", x1: px(ax) - 3, y1: py(t), x2: px(ax) + 3, y2: py(t), width: 1, color: axisColor, blockId: b.id });
+      this.text(String(+t.toFixed(4)), px(ax) - 26, py(t) + 3, 10, "hand", false, b.id, axisColor);
+    }
+    const colors = [AI_INK, "#dc2626", "#16a34a", "#7c3aed"];
+    curves.forEach((c, ci) => {
+      const color = colors[ci % colors.length];
+      for (const seg of c.segments) {
+        const step = Math.max(1, Math.ceil(seg.length / 120)); // bound element count
+        for (let i = step; i < seg.length; i += step) {
+          const [ax0, ay0] = seg[i - step], [ax1, ay1] = seg[i];
+          if ([ay0, ay1].some((v) => v < y0 || v > y1)) continue; // clip to plot area
+          this.emit({ type: "line", x1: px(ax0), y1: py(ay0), x2: px(ax1), y2: py(ay1), width: 2, color, blockId: b.id });
+        }
+      }
+    });
+    this.y = top + boxH;
+    curves.forEach((c, ci) => {
+      this.text(`— ${toUnicodeMath(c.label)}`, left + 30, this.y, 13, "hand", false, b.id, colors[ci % colors.length]);
+      this.y += 16;
+    });
+    for (const e of errors) {
+      this.text(`Not plotted: ${e}`, left + 30, this.y, 12, "hand", false, b.id, "#dc2626");
+      this.y += 16;
+    }
+    this.gap();
+  }
+
   run(): PageElement[][] {
-    this.paragraph(this.doc.title, LAYOUT.marginX, LAYOUT.bodySize * 1.4, "hand", true, "__title");
-    this.emit({ type: "line", x1: LAYOUT.marginX, y1: this.y - 6, x2: this.pageW - LAYOUT.marginX, y2: this.y - 6, width: 1.5, color: AI_INK, blockId: "__title" });
+    this.paragraph(this.doc.title, this.left, LAYOUT.bodySize * 1.4, "hand", true, "__title");
+    this.emit({ type: "line", x1: this.left, y1: this.y - 6, x2: this.left + this.width, y2: this.y - 6, width: 1.5, color: AI_INK, blockId: "__title" });
     this.gap();
     for (const b of this.doc.blocks) this.block(b);
     return this.pages;
@@ -312,13 +385,45 @@ export type LayoutResult = {
  */
 export function layoutAnswer(
   doc: AnswerDocument,
-  opts: { pageWidth?: number; pageHeight?: number; startY?: number } = {}
+  opts: { pageWidth?: number; pageHeight?: number; startY?: number; region?: { x: number; y: number; width: number } } = {}
 ): LayoutResult {
   const pageW = opts.pageWidth ?? PAGE_WIDTH;
   const pageH = opts.pageHeight ?? PAGE_HEIGHT;
   const groupId = newId();
   const l = new Layouter(doc, groupId, pageW, pageH);
-  if (opts.startY != null && opts.startY > LAYOUT.marginTop) l.y = opts.startY + LAYOUT.blockGap;
+  if (opts.region) {
+    l.left = opts.region.x;
+    l.width = opts.region.width;
+    l.y = Math.max(LAYOUT.marginTop, opts.region.y);
+  } else if (opts.startY != null && opts.startY > LAYOUT.marginTop) l.y = opts.startY + LAYOUT.blockGap;
   const pages = l.run();
   return { pages, groupId };
+}
+
+export type Placement = "below" | "right" | "flow";
+const MIN_REGION_WIDTH = 220;
+
+/**
+ * Place an answer beside the student's work: directly below the selection if
+ * it fits on the same page, else to its right, else the normal flow (below
+ * existing content, continuing onto new pages).
+ */
+export function placeNearSelection(
+  doc: AnswerDocument,
+  sel: { minX: number; minY: number; maxX: number; maxY: number },
+  opts: { pageWidth?: number; pageHeight?: number; startY?: number } = {}
+): LayoutResult & { placement: Placement } {
+  const pageW = opts.pageWidth ?? PAGE_WIDTH;
+  const right = pageW - LAYOUT.marginX;
+  const below = { x: Math.max(LAYOUT.marginX, sel.minX), y: sel.maxY + 16 };
+  if (right - below.x >= MIN_REGION_WIDTH) {
+    const r = layoutAnswer(doc, { ...opts, region: { ...below, width: right - below.x } });
+    if (r.pages.length === 1) return { ...r, placement: "below" };
+  }
+  const side = { x: sel.maxX + 20, y: sel.minY };
+  if (right - side.x >= MIN_REGION_WIDTH) {
+    const r = layoutAnswer(doc, { ...opts, region: { ...side, width: right - side.x } });
+    if (r.pages.length === 1) return { ...r, placement: "right" };
+  }
+  return { ...layoutAnswer(doc, opts), placement: "flow" };
 }

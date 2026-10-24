@@ -10,14 +10,19 @@ import { drawStroke, drawElement } from "./render";
 export function captureRegionPNG(
   page: NotebookPage,
   strokeIds: string[],
-  opts: { padding?: number; scale?: number; maxDim?: number } = {}
+  opts: { padding?: number; scale?: number; maxDim?: number; rect?: { x: number; y: number; w: number; h: number } } = {}
 ): { dataUrl: string; width: number; height: number } | null {
   const sel = new Set(strokeIds);
   const strokes = page.layers.flatMap((l) => l.strokes).filter((s) => sel.has(s.id));
   if (!strokes.length) return null;
 
   const pad = opts.padding ?? 24;
-  const b = strokes.map(strokeBounds).reduce((a, c) => ({
+  // Crop to the user's selection region (lasso/rect bounds) when provided,
+  // so background content (e.g. a PDF problem) inside the loop is included.
+  const src = opts.rect
+    ? [{ minX: opts.rect.x, minY: opts.rect.y, maxX: opts.rect.x + opts.rect.w, maxY: opts.rect.y + opts.rect.h }]
+    : strokes.map(strokeBounds);
+  const b = src.reduce((a, c) => ({
     minX: Math.max(0, Math.min(a.minX, c.minX) - pad),
     minY: Math.max(0, Math.min(a.minY, c.minY) - pad),
     maxX: Math.min(page.width, Math.max(a.maxX, c.maxX) + pad),

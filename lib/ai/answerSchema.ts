@@ -37,6 +37,11 @@ export const LIMITS = {
   label: 200,
   annotations: 10,
   followUps: 5,
+  checkLines: 30,
+  checkLine: 200,
+  graphExprs: 4,
+  graphExpr: 200,
+  graphRange: 1000,
   followUp: 120,
   summary: 500,
   warnings: 10,
@@ -131,6 +136,41 @@ export const answerBlockSchema = z.discriminatedUnion("type", [
     primitives: z.array(diagramPrimitiveSchema).min(1).max(LIMITS.diagramPrimitives),
   }),
   z.object({ id, type: z.literal("annotation"), text: z.string().min(1).max(LIMITS.text), targetBlockId: id.optional() }),
+  z.object({
+    id,
+    type: z.literal("check"),
+    lines: z
+      .array(
+        z.object({
+          lineIndex: z.number().int().min(0).max(LIMITS.checkLines - 1),
+          text: z.string().max(LIMITS.checkLine).optional(),
+          status: z.enum(["correct", "error", "unclear"]),
+          note: z.string().max(LIMITS.stepNote).optional(),
+          correction: z.string().max(LIMITS.latex).optional(),
+          /** Set by the server's deterministic check only; never trusted from the model. */
+          verification: z.enum(["verified", "mismatch", "unknown"]).optional(),
+        })
+      )
+      .min(1)
+      .max(LIMITS.checkLines),
+  }),
+  z.object({
+    id,
+    type: z.literal("graph"),
+    title: z.string().max(LIMITS.label).optional(),
+    expressions: z
+      .array(z.object({ expr: z.string().min(1).max(LIMITS.graphExpr), label: z.string().max(LIMITS.label).optional() }))
+      .min(1)
+      .max(LIMITS.graphExprs),
+    xRange: z.tuple([z.number().finite(), z.number().finite()]).refine(
+      ([a, b]) => a < b && b - a <= LIMITS.graphRange && Math.abs(a) <= LIMITS.graphRange && Math.abs(b) <= LIMITS.graphRange,
+      "invalid xRange"
+    ),
+    yRange: z
+      .tuple([z.number().finite(), z.number().finite()])
+      .refine(([a, b]) => a < b && b - a <= LIMITS.graphRange * 10, "invalid yRange")
+      .optional(),
+  }),
 ]);
 
 export type AnswerBlock = z.infer<typeof answerBlockSchema>;
@@ -170,7 +210,7 @@ export type AnswerBlockType = AnswerBlock["type"];
 
 export const ANSWER_BLOCK_TYPES = [
   "paragraph", "heading", "list", "callout", "math", "derivation",
-  "definition", "code", "steps", "table", "diagram", "annotation",
+  "definition", "code", "steps", "table", "diagram", "annotation", "check", "graph",
 ] as const satisfies readonly AnswerBlockType[];
 
 /** Validate parsed JSON against the schema. Throws ZodError on failure. */

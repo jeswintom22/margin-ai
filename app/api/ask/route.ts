@@ -1,5 +1,5 @@
 import { readLLMConfig, LLMError } from "@/lib/ai/llm";
-import { generateAnswer } from "@/lib/ai/answerService";
+import { TUTOR_MODES, generateAnswer } from "@/lib/ai/answerService";
 import { validateQuestion, type AskResponse } from "@/lib/ai/types";
 import { enforceRequestLimit, readRequestJSON, RequestError } from "@/lib/ai/requestProtection";
 
@@ -11,7 +11,11 @@ export async function POST(request: Request) {
     const question = (body as { question?: unknown } | null)?.question;
     const invalid = validateQuestion(question);
     if (invalid) return json({ error: invalid }, 400);
-    const b = body as { context?: unknown; image?: unknown; capability?: unknown } | null;
+    const b = body as { context?: unknown; image?: unknown; capability?: unknown; mode?: unknown; lines?: unknown } | null;
+    const mode = TUTOR_MODES.find((m) => m === b?.mode);
+    if (b?.mode !== undefined && !mode) throw new RequestError("Unknown tutor mode", 400);
+    const lines = Array.isArray(b?.lines) && b.lines.every((l) => typeof l === "string") ? (b.lines as string[]) : undefined;
+    if (b?.lines !== undefined && !lines) throw new RequestError("lines must be an array of strings", 400);
     const capability =
       b?.capability === "fast" || b?.capability === "vision" || b?.capability === "reasoning"
         ? b.capability
@@ -21,7 +25,7 @@ export async function POST(request: Request) {
       readLLMConfig(),
       fetch,
       b?.context,
-      { image: b?.image, capability }
+      { image: b?.image, capability, mode, lines }
     );
     return json({ answer }, 200);
   } catch (e) {

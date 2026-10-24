@@ -20,9 +20,11 @@ import {
   type PageElement,
 } from "@/lib/document/types";
 import { NotebookHistory, type PageOperation, apply, applyInsertion, removeStrokes, EraseTransaction } from "@/lib/history/history";
-import { layoutAnswer } from "@/lib/ai/answerLayout";
+import { layoutAnswer, placeNearSelection, type Placement } from "@/lib/ai/answerLayout";
+import { layoutCheckMarks, unionBounds } from "@/lib/ai/markLayout";
+import { strokeBounds } from "@/lib/drawing/geometry";
 import type { AnswerDocument } from "@/lib/ai/answerSchema";
-import { strokeIntersectsRect, simplifyPoints, type Rect } from "@/lib/drawing/geometry";
+import { strokeIntersectsRect, simplifyPoints, strokeInLasso, polygonBounds, type Rect } from "@/lib/drawing/geometry";
 import * as db from "@/lib/storage/db";
 import { AutoSaver } from "@/lib/storage/autosave";
 import { downloadNotebook, importNotebookJSON } from "@/lib/storage/exportImport";
@@ -46,6 +48,8 @@ export function useNotebook() {
   const [conflict, setConflict] = useState(false);
   const [loading, setLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  /** Region the user selected (rect or lasso bounds) — used to crop captures. */
+  const [selectionRect, setSelectionRect] = useState<Rect | null>(null);
 
   const [notebook, setNotebookState] = useState<Notebook | null>(null);
   const [histFlags, setHistFlags] = useState({ undo: false, redo: false });
@@ -329,7 +333,7 @@ export function useNotebook() {
   const commitStroke = useCallback(
     (points: Point[]) => {
       const nb = nbRef.current;
-      if (!nb || !page || points.length === 0 || tool === "eraser" || tool === "select") return;
+      if (!nb || !page || points.length === 0 || tool === "eraser" || tool === "select" || tool === "lasso") return;
       const pts = simplifyPoints(points, 0.4);
       const stroke = createStroke(pts, {
         color,
@@ -401,6 +405,19 @@ export function useNotebook() {
         }
       }
       setSelectedIds(ids);
+      setSelectionRect(ids.length ? rect : null);
+      return ids;
+    },
+    [page]
+  );
+
+  /** Lasso selection: strokes inside (or crossing into) the closed loop. */
+  const selectInLasso = useCallback(
+    (poly: Point[]): string[] => {
+      if (!page) return [];
+      const ids = page.layers.flatMap((l) => l.strokes).filter((s) => strokeInLasso(s, poly)).map((s) => s.id);
+      setSelectedIds(ids);
+      setSelectionRect(ids.length ? polygonBounds(poly) : null);
       return ids;
     },
     [page]
@@ -460,7 +477,10 @@ export function useNotebook() {
    * how many pages the answer spans.
    */
   const insertAnswer = useCallback(
-    (doc: AnswerDocument): { ok: boolean; error?: string; pageId?: string; pageSpan?: number } => {
+    (
+      doc: AnswerDocument,
+      near?: string[]
+    ): { ok: boolean; error?: string; pageId?: string; pageSpan?: number; groupId?: string; placement?: Placement } => {
       const nb = nbRef.current;
       if (!nb || !page) return { ok: false, error: "No page is open" };
       if (!doc.blocks.length) return { ok: false, error: "The answer is empty" };
@@ -469,11 +489,11 @@ export function useNotebook() {
         const bottom = (e: PageElement) =>
           e.type === "rect" ? e.y + e.h : e.type === "line" ? Math.max(e.y1, e.y2) : e.y;
         const maxY = Math.max(0, ...ai.elements.map(bottom));
-        const { pages: laidOut, groupId } = layoutAnswer(doc, {
-          pageWidth: page.width,
-          pageHeight: page.height,
-          startY: maxY || undefined,
-        });
+        const flowOpts = { pageWidth: page.width, pageHeight: page.height, startY: maxY || undefined };
+        const nearStrokes = near?.length ? page.layers.flatMap((l) => l.strokes).filter((s) => near.includes(s.id)) : [];
+        const { pages: laidOut, groupId, placement } = nearStrokes.length
+          ? placeNearSelection(doc, unionBounds(nearStrokes.map(strokeBounds)), flowOpts)
+          : { ...layoutAnswer(doc, flowOpts), placement: "flow" as const };
         const startIdx = nb.pages.indexOf(page);
         const appends: { pageId: string; layerId: string; elements: PageElement[] }[] = [
           { pageId: page.id, layerId: ai.id, elements: laidOut[0] },
@@ -492,12 +512,54 @@ export function useNotebook() {
           history.current.record({ scope: "notebook", op });
         });
         setActivePageId(page.id);
-        return { ok: true, pageId: page.id, pageSpan: laidOut.length };
+        return { ok: true, pageId: page.id, pageSpan: laidOut.length, groupId, placement };
       } catch {
         return { ok: false, error: "Could not lay out the answer" };
       }
     },
     [page, mutate]
+  );
+
+  /** Write check marks beside the selected lines (one undoable insertion). */
+  const insertCheckMarks = useCallback(
+    (check: Extract<AnswerDocument["blocks"][number], { type: "check" }>, strokeIds: string[], lineCount: number) => {
+      const nb = nbRef.current;
+      if (!nb || !page) return null;
+      const strokes = page.layers.flatMap((l) => l.strokes).filter((s) => strokeIds.includes(s.id));
+      const groupId = newId();
+      const elements = layoutCheckMarks(check, strokes, groupId, lineCount, page.width);
+      if (!elements.length) return null;
+      const ai = aiLayer(page);
+      const op = { type: "insertElements" as const, groupId, createdPages: [], appends: [{ pageId: page.id, layerId: ai.id, elements }] };
+      mutate(() => {
+        applyInsertion(nb, op);
+        history.current.record({ scope: "notebook", op });
+      });
+      return groupId;
+    },
+    [page, mutate]
+  );
+
+  /** Remove one AI answer/mark group everywhere ("Undo AI answer"); undoable per page. */
+  const removeAIGroup = useCallback(
+    (groupId: string) => {
+      const nb = nbRef.current;
+      if (!nb) return false;
+      let removedAny = false;
+      mutate(() => {
+        for (const p of nb.pages) {
+          for (const layer of p.layers) {
+            const removed = layer.elements.map((element, index) => ({ index, element })).filter((r) => r.element.groupId === groupId);
+            if (!removed.length) continue;
+            layer.elements = layer.elements.filter((e) => e.groupId !== groupId);
+            recordPage(p.id, { type: "removeElements", pageId: p.id, layerId: layer.id, removed });
+            removedAny = true;
+          }
+        }
+      });
+      return removedAny;
+    },
+    [mutate, recordPage]
   );
 
   /** Remove all AI elements on the current page (one undoable op). */
@@ -595,13 +657,13 @@ export function useNotebook() {
     saveStatus,
     storageAvailable,
     conflict, setConflict,
-    selectedIds, setSelectedIds,
+    selectedIds, setSelectedIds, selectionRect, selectInLasso,
     canUndo, canRedo,
     openNotebook, addNotebook, renameNotebook, removeNotebook,
     addPage, renamePage, deletePage, movePage, selectPage, setPaperStyle,
     commitStroke, beginErase, eraseAt, endErase, selectInRect, deleteSelected,
     undo, redo,
-    insertAIStrokes, setAILayerVisible, insertAnswer, clearAIContent,
+    insertAIStrokes, setAILayerVisible, insertAnswer, clearAIContent, insertCheckMarks, removeAIGroup,
     exportNotebook, importNotebook, reloadFromStorage,
   };
 }

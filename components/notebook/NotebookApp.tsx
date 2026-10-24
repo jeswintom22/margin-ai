@@ -6,6 +6,7 @@ import Toolbar from "@/components/notebook/Toolbar";
 import Sidebar from "@/components/notebook/Sidebar";
 import PaperCanvas from "@/components/canvas/PaperCanvas";
 import AssistantPanel from "@/components/notebook/AssistantPanel";
+import TutorPanel from "@/components/notebook/TutorPanel";
 import { buildNotebookContext } from "@/lib/ai/contextBuilder";
 import { captureRegionPNG } from "@/lib/drawing/capture";
 
@@ -13,6 +14,7 @@ export default function NotebookApp() {
   const nb = useNotebook();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [assistantOpen, setAssistantOpen] = useState(false);
+  const [thinking, setThinking] = useState(false);
 
   // keyboard shortcuts
   useEffect(() => {
@@ -38,6 +40,7 @@ export default function NotebookApp() {
         else if (k === "h") nb.setTool("highlighter");
         else if (k === "e") nb.setTool("eraser");
         else if (k === "s") nb.setTool("select");
+        else if (k === "l") nb.setTool("lasso");
       }
     };
     window.addEventListener("keydown", onKey);
@@ -135,7 +138,13 @@ export default function NotebookApp() {
           onMovePage={nb.movePage}
         />
 
-        <main className="min-w-0 flex-1">
+        <main className="relative min-w-0 flex-1">
+          {thinking && (
+            <div role="status" className="pointer-events-none absolute left-1/2 top-3 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full border border-blue-200 bg-white/95 px-3 py-1 text-xs text-blue-800 shadow-sm">
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-blue-300 border-t-blue-700" aria-hidden />
+              AI tutor is thinking…
+            </div>
+          )}
           {nb.page ? (
             <PaperCanvas
               key={nb.page.id}
@@ -150,6 +159,7 @@ export default function NotebookApp() {
               onEraseAt={nb.eraseAt}
               onEraseEnd={nb.endErase}
               onSelectRect={nb.selectInRect}
+              onSelectLasso={nb.selectInLasso}
             />
           ) : (
             <div className="flex h-full items-center justify-center text-sm text-neutral-400">
@@ -168,7 +178,17 @@ export default function NotebookApp() {
                 : null
             }
             hasSelection={nb.selectedIds.length > 0}
-            captureSelection={() => (nb.page ? captureRegionPNG(nb.page, nb.selectedIds) : null)}
+            captureSelection={() => (nb.page ? captureRegionPNG(nb.page, nb.selectedIds, { rect: nb.selectionRect ?? undefined }) : null)}
+            tutor={
+              <TutorPanel
+                hasSelection={nb.selectedIds.length > 0}
+                captureSelection={() => (nb.page ? captureRegionPNG(nb.page, nb.selectedIds, { rect: nb.selectionRect ?? undefined }) : null)}
+                onMarks={(check, lineCount) => nb.insertCheckMarks(check, nb.selectedIds, lineCount)}
+                onPlace={(doc) => nb.insertAnswer(doc, nb.selectedIds)}
+                onRemoveGroup={nb.removeAIGroup}
+                onThinking={setThinking}
+              />
+            }
           />
         )}
       </div>
