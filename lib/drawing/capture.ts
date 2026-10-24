@@ -1,10 +1,11 @@
 import type { NotebookPage } from "@/lib/document/types";
 import { strokeBounds } from "./geometry";
-import { drawStroke, drawElement } from "./render";
+import { drawStroke, drawElement, drawBackground } from "./render";
 
 /**
  * Render a bounded region of a page to a PNG data URL (client only).
- * Draws every visible layer (user ink + AI elements) over white paper —
+ * Draws the page background (e.g. PDF) and every visible layer (user ink +
+ * AI elements) over white paper —
  * the drawing engine is reused unchanged; nothing is mutated.
  */
 export function captureRegionPNG(
@@ -44,6 +45,7 @@ export function captureRegionPNG(
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.scale(scale, scale);
   ctx.translate(-b.minX, -b.minY);
+  drawBackground(ctx, page); // include PDF content under the selection
   for (const layer of page.layers) {
     if (!layer.visible) continue;
     for (const e of layer.elements ?? []) drawElement(ctx, e);

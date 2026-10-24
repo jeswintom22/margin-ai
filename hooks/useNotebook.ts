@@ -20,6 +20,7 @@ import {
   type PageElement,
 } from "@/lib/document/types";
 import { NotebookHistory, type PageOperation, apply, applyInsertion, removeStrokes, EraseTransaction } from "@/lib/history/history";
+import type { ImportedPdfPage } from "@/lib/pdf/importPdf";
 import { layoutAnswer, placeNearSelection, type Placement } from "@/lib/ai/answerLayout";
 import { layoutCheckMarks, unionBounds } from "@/lib/ai/markLayout";
 import { strokeBounds } from "@/lib/drawing/geometry";
@@ -272,6 +273,22 @@ export function useNotebook() {
     setActivePageId(p.id);
     setSelectedIds([]);
   }, [mutate, page]);
+
+  /** Append imported PDF pages (locked backgrounds) after the current page. */
+  const importPdfPages = useCallback(
+    (imported: ImportedPdfPage[]) => {
+      const nb = nbRef.current;
+      if (!nb || !imported.length) return;
+      const at = page ? nb.pages.indexOf(page) + 1 : nb.pages.length;
+      const created = imported.map((ip) => ({ ...createPage(ip.title, "blank"), width: ip.width, height: ip.height, background: ip.background }));
+      mutate(() => {
+        nb.pages.splice(at, 0, ...created);
+      });
+      setActivePageId(created[0].id);
+      setSelectedIds([]);
+    },
+    [mutate, page]
+  );
 
   const renamePage = useCallback(
     (pageId: string, title: string) => {
@@ -657,7 +674,7 @@ export function useNotebook() {
     saveStatus,
     storageAvailable,
     conflict, setConflict,
-    selectedIds, setSelectedIds, selectionRect, selectInLasso,
+    selectedIds, setSelectedIds, selectionRect, selectInLasso, importPdfPages,
     canUndo, canRedo,
     openNotebook, addNotebook, renameNotebook, removeNotebook,
     addPage, renamePage, deletePage, movePage, selectPage, setPaperStyle,

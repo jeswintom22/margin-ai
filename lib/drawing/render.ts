@@ -1,5 +1,37 @@
 import type { NotebookPage, PageElement, PaperStyle, Stroke } from "@/lib/document/types";
 
+// ---- page backgrounds (imported PDF pages) ----
+
+const bgImages = new Map<string, HTMLImageElement>();
+const bgListeners = new Set<() => void>();
+
+/** Subscribe to "a background image finished decoding" (repaint trigger). */
+export function onBackgroundLoaded(fn: () => void): () => void {
+  bgListeners.add(fn);
+  return () => bgListeners.delete(fn);
+}
+
+/** Decoded image for a background, or null while it is still loading. */
+export function backgroundImage(dataUrl: string): HTMLImageElement | null {
+  if (typeof Image === "undefined") return null;
+  let img = bgImages.get(dataUrl);
+  if (!img) {
+    img = new Image();
+    img.onload = () => bgListeners.forEach((f) => f());
+    img.src = dataUrl;
+    bgImages.set(dataUrl, img);
+    if (bgImages.size > 60) bgImages.delete(bgImages.keys().next().value as string); // bound memory
+  }
+  return img.complete && img.naturalWidth > 0 ? img : null;
+}
+
+/** Draw the locked background scaled to the page (under every layer). */
+export function drawBackground(ctx: CanvasRenderingContext2D, page: NotebookPage) {
+  if (!page.background) return;
+  const img = backgroundImage(page.background.dataUrl);
+  if (img) ctx.drawImage(img, 0, 0, page.width, page.height);
+}
+
 export const HAND_FONT = "Kalam, 'Segoe Script', 'Comic Sans MS', cursive";
 export const MONO_FONT = "'Cascadia Mono', Consolas, 'Courier New', monospace";
 
@@ -118,6 +150,7 @@ export function renderPage(
 ) {
   ctx.clearRect(0, 0, page.width, page.height);
   drawPaper(ctx, page.width, page.height, page.paperStyle);
+  drawBackground(ctx, page);
   for (const layer of page.layers) {
     if (!layer.visible) continue;
     for (const e of layer.elements ?? []) drawElement(ctx, e);

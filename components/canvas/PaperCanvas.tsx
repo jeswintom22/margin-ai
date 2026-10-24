@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useCallback } from "react";
 import type { NotebookPage, Point, Stroke } from "@/lib/document/types";
-import { renderPage } from "@/lib/drawing/render";
+import { onBackgroundLoaded, renderPage } from "@/lib/drawing/render";
 import { clientToPage, fitScale } from "@/lib/drawing/coords";
 import { CanvasGesture } from "@/lib/drawing/gesture";
 import type { EditorTool } from "@/lib/document/types";
@@ -190,6 +190,9 @@ export default function PaperCanvas({
   useEffect(() => {
     dirty.current = true;
   }, [version, page, selectedIds]);
+
+  // Repaint when a page background (imported PDF) finishes decoding.
+  useEffect(() => onBackgroundLoaded(() => { dirty.current = true; }), []);
 
   // Repaint once the handwriting font is ready so AI text uses it.
   useEffect(() => {

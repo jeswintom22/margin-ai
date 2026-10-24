@@ -9,12 +9,27 @@ import AssistantPanel from "@/components/notebook/AssistantPanel";
 import TutorPanel from "@/components/notebook/TutorPanel";
 import { buildNotebookContext } from "@/lib/ai/contextBuilder";
 import { captureRegionPNG } from "@/lib/drawing/capture";
+import { readPdfFile, pdfToPages, PdfImportError } from "@/lib/pdf/importPdf";
 
 export default function NotebookApp() {
   const nb = useNotebook();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [thinking, setThinking] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const importPdf = async (file: File) => {
+    setPdfBusy(true);
+    setPdfError(null);
+    try {
+      const data = await readPdfFile(file);
+      nb.importPdfPages(await pdfToPages(data, { name: file.name.replace(/\.pdf$/i, "") }));
+    } catch (e) {
+      setPdfError(e instanceof PdfImportError ? e.message : "The PDF could not be imported.");
+    } finally {
+      setPdfBusy(false);
+    }
+  };
 
   // keyboard shortcuts
   useEffect(() => {
@@ -83,6 +98,8 @@ export default function NotebookApp() {
         onAddPage={nb.addPage}
         onToggleSidebar={() => setSidebarOpen((o) => !o)}
         onExport={nb.exportNotebook}
+        onImportPdf={importPdf}
+        pdfBusy={pdfBusy}
         assistantOpen={assistantOpen}
         onToggleAssistant={() => setAssistantOpen((o) => !o)}
         aiCount={aiLayerOnPage?.elements.length ?? 0}
@@ -139,6 +156,12 @@ export default function NotebookApp() {
         />
 
         <main className="relative min-w-0 flex-1">
+          {pdfError && (
+            <div role="alert" className="absolute left-1/2 top-3 z-10 flex -translate-x-1/2 items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-800 shadow-sm">
+              {pdfError}
+              <button type="button" aria-label="Dismiss" onClick={() => setPdfError(null)} className="rounded px-1 hover:bg-red-100">✕</button>
+            </div>
+          )}
           {thinking && (
             <div role="status" className="pointer-events-none absolute left-1/2 top-3 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full border border-blue-200 bg-white/95 px-3 py-1 text-xs text-blue-800 shadow-sm">
               <span className="h-3 w-3 animate-spin rounded-full border-2 border-blue-300 border-t-blue-700" aria-hidden />

@@ -13,7 +13,7 @@
  * - `schemaVersion` enables migrations for future fields (text objects, images, math).
  */
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /** Intrinsic page size in document units (A4 at 96dpi, rounded). */
 export const PAGE_WIDTH = 794;
@@ -116,7 +116,12 @@ export type NotebookPage = {
   /** Rendered bottom-to-top. Layer 0 is always the user layer. */
   layers: NotebookLayer[];
   eraserOperations: EraserOperation[];
+  /** Locked image drawn under every layer (e.g. an imported PDF page). Never edited by tools. */
+  background?: PageBackground;
 };
+
+/** Raster page background (JPEG/PNG data URL) at its rendered pixel size. */
+export type PageBackground = { dataUrl: string; width: number; height: number; label?: string };
 
 export type Notebook = {
   id: string;

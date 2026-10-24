@@ -82,7 +82,7 @@ const notebookSchemaV1 = z.object({
   updatedAt: z.number(),
 });
 
-const pageSchema = z.object({
+const pageSchemaV2 = z.object({
   id: z.string().min(1),
   title: z.string().default(""),
   width: z.number().positive(),
@@ -90,6 +90,29 @@ const pageSchema = z.object({
   paperStyle: z.enum(["blank", "ruled", "grid"]),
   layers: z.array(layerSchema).min(1),
   eraserOperations: z.array(eraserOpSchema).default([]),
+});
+
+/** Max data-URL length for one page background (~6 MB of base64). */
+export const MAX_BACKGROUND_CHARS = 8_000_000;
+
+const pageSchema = pageSchemaV2.extend({
+  background: z
+    .object({
+      dataUrl: z.string().max(MAX_BACKGROUND_CHARS).regex(/^data:image\/(?:jpeg|png);base64,[A-Za-z0-9+/=]+$/),
+      width: z.number().int().positive().max(8192),
+      height: z.number().int().positive().max(8192),
+      label: z.string().max(200).optional(),
+    })
+    .optional(),
+});
+
+const notebookSchemaV2 = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  pages: z.array(pageSchemaV2).min(1),
+  schemaVersion: z.literal(2),
+  createdAt: z.number(),
+  updatedAt: z.number(),
 });
 
 const notebookSchema = z.object({
@@ -126,7 +149,8 @@ export function parseExportFile(data: unknown): Notebook {
  * Forward-migrate a notebook to SCHEMA_VERSION. Consecutive steps only:
  * each version is validated by its own schema, transformed without mutating
  * the input, and the result is validated by the current schema.
- * v1 → v2 adds the `elements` array to every layer.
+ * v1 → v2 adds the `elements` array to every layer; v2 → v3 adds the optional
+ * locked page `background` (imported PDF pages).
  */
 export function migrateNotebook(data: unknown): Notebook {
   const { schemaVersion } = z.object({ schemaVersion: z.number().int() }).parse(data);
@@ -153,6 +177,12 @@ export function migrateNotebook(data: unknown): Notebook {
             layers: p.layers.map((l) => ({ ...l, elements: [] })),
           })),
         };
+        break;
+      }
+      case 2: {
+        // v2 -> v3 adds the optional page `background`; existing pages have none.
+        const doc = notebookSchemaV2.parse(input);
+        input = { ...doc, schemaVersion: 3 };
         break;
       }
       default:

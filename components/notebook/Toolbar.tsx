@@ -26,6 +26,8 @@ type Props = {
   onAddPage: () => void;
   onToggleSidebar: () => void;
   onExport: () => void;
+  onImportPdf: (file: File) => void;
+  pdfBusy: boolean;
   assistantOpen: boolean;
   onToggleAssistant: () => void;
   /** Number of AI elements on the current page; AI controls show only when > 0. */
@@ -173,6 +175,24 @@ export default function Toolbar(p: Props) {
       >
         + Page
       </button>
+      <label
+        title="Import a PDF: each page becomes a notebook page with the PDF as a locked background"
+        className={`hidden h-9 cursor-pointer items-center rounded-md border border-neutral-300 px-2 text-xs text-neutral-700 hover:bg-neutral-100 sm:flex ${p.pdfBusy ? "pointer-events-none opacity-50" : ""}`}
+      >
+        {p.pdfBusy ? "Importing…" : "Import PDF"}
+        <input
+          type="file"
+          accept="application/pdf,.pdf"
+          aria-label="Import PDF"
+          className="sr-only"
+          disabled={p.pdfBusy}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (f) p.onImportPdf(f);
+          }}
+        />
+      </label>
       <button
         type="button"
         onClick={p.onExport}
