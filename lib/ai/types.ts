@@ -7,7 +7,7 @@ export const MAX_QUESTION_LENGTH = 4000;
 
 import type { AnswerDocument } from "./answerSchema";
 
-export type AskRequest = { question: string };
+export type AskRequest = { question: string; context?: unknown };
 
 export type AskResponse = { answer: AnswerDocument } | { error: string };
 

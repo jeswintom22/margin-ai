@@ -6,6 +6,7 @@ import Toolbar from "@/components/notebook/Toolbar";
 import Sidebar from "@/components/notebook/Sidebar";
 import PaperCanvas from "@/components/canvas/PaperCanvas";
 import AssistantPanel from "@/components/notebook/AssistantPanel";
+import { buildNotebookContext } from "@/lib/ai/contextBuilder";
 
 export default function NotebookApp() {
   const nb = useNotebook();
@@ -154,6 +155,12 @@ export default function NotebookApp() {
           <AssistantPanel
             onClose={() => setAssistantOpen(false)}
             onInsert={(doc) => nb.insertAnswer(doc)}
+            getContext={() =>
+              nb.notebook && nb.page
+                ? buildNotebookContext(nb.notebook, { pageId: nb.page.id, selectedStrokeIds: nb.selectedIds })
+                : null
+            }
+            hasSelection={nb.selectedIds.length > 0}
           />
         )}
       </div>

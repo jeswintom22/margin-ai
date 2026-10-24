@@ -10,18 +10,24 @@ import {
 } from "@/lib/ai/types";
 import AnswerView from "@/components/notebook/AnswerView";
 import type { AnswerDocument } from "@/lib/ai/answerSchema";
+import type { NotebookContext } from "@/lib/ai/contextSchema";
 
 type Props = {
   onClose: () => void;
   /** Insert an answer into the notebook; returns the result. */
   onInsert: (doc: AnswerDocument) => { ok: boolean; error?: string; pageSpan?: number };
+  /** Build a context snapshot for the current page/selection, or null. */
+  getContext: () => NotebookContext | null;
+  /** True when strokes are selected (enables selection actions). */
+  hasSelection: boolean;
 };
 
 /**
  * Minimal assistant: asks /api/ask and lists the exchanges for this session.
  * Exchanges are kept in memory only; they are not written into the notebook yet.
  */
-export default function AssistantPanel({ onClose, onInsert }: Props) {
+export default function AssistantPanel({ onClose, onInsert, getContext, hasSelection }: Props) {
+  const [withContext, setWithContext] = useState(false);
   const [question, setQuestion] = useState("");
   const [exchanges, setExchanges] = useState<AssistantExchange[]>([]);
   const [pending, setPending] = useState(false);
@@ -40,7 +46,7 @@ export default function AssistantPanel({ onClose, onInsert }: Props) {
       const res = await fetch("/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: ex.question }),
+        body: JSON.stringify({ question: ex.question, context: withContext ? getContext() : undefined }),
       });
       const data = (await res.json().catch(() => null)) as AskResponse | null;
       if (data && "answer" in data) update(ex.id, { answer: data.answer });
@@ -115,6 +121,32 @@ export default function AssistantPanel({ onClose, onInsert }: Props) {
           ask();
         }}
       >
+        <div className="mb-1 flex flex-wrap items-center gap-1.5">
+          <label className="flex items-center gap-1 text-xs text-neutral-600">
+            <input
+              type="checkbox"
+              checked={withContext}
+              onChange={(e) => setWithContext(e.target.checked)}
+            />
+            Include this page
+          </label>
+          <button
+            type="button"
+            disabled={!hasSelection}
+            title={hasSelection ? "Ask about the selected ink" : "Select strokes on the page first"}
+            onClick={() => { setQuestion("Explain the selected content"); setWithContext(true); }}
+            className="rounded border border-neutral-300 px-1.5 py-0.5 text-xs text-neutral-600 disabled:opacity-40"
+          >
+            Explain selection
+          </button>
+          <button
+            type="button"
+            onClick={() => { setQuestion("Summarize this page"); setWithContext(true); }}
+            className="rounded border border-neutral-300 px-1.5 py-0.5 text-xs text-neutral-600"
+          >
+            Summarize page
+          </button>
+        </div>
         <textarea
           aria-label="Question for the assistant"
           value={question}
