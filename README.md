@@ -92,10 +92,40 @@ tests/                  Vitest suites (geometry, coords, history, document, stor
   merged or overwritten.
 - **Erasing is reversible.** `eraseStrokes` ops record removed strokes + indices and
   append an `EraserOperation` provenance record; undo restores original positions.
-- **Schema versioning.** `schemaVersion` + `migrateNotebook()` provide the
-  forward-migration hook; imports are validated and newer versions rejected.
+- **Schema versioning.** Version 1 is both the current and oldest supported format.
+  `parseNotebook()` / `migrateNotebook()` validate the complete v1 document, including
+  a user layer on each page. JSON imports and IndexedDB loading/listing use this same
+  policy. Future versions fail with an update instruction; unsupported older versions
+  and malformed versions/documents fail without relabeling or rewriting stored data.
+  No historical migrations exist. Existing v1 defaults for omitted page titles and
+  eraser logs remain supported; complete valid v1 documents retain all modeled data.
+  JSON exports still use `format: "margin-ai-notebook"` and `formatVersion: 1`;
+  importing intentionally generates a fresh notebook ID and updates `updatedAt`.
 - **History scope.** Undo/redo stacks are per page; page structural ops use
   confirmations (documented trade-off).
+
+### Introducing document schema version 2
+
+1. Design the actual feature and v2 fields first; do not add speculative fields or
+   invent a pre-v1 format. Keep the v1 validator available with a literal version 1.
+2. Define a separate v2 validator (literal version 2), update the current TypeScript
+   model/factories, and then bump `SCHEMA_VERSION`. The export envelope version and
+   IndexedDB database version are separate from the document schema version.
+3. Add an explicit v1 → v2 step in `migrateNotebook()`. Dispatch on the input version
+   before applying the current validator. Validate the source with its own schema,
+   transform without mutating input, and validate the result with the v2 schema,
+   including page/user-layer invariants. For later versions, run only consecutive
+   steps (v1 → v2 → v3), validate after each step, and validate the final result with
+   the current schema. A missing step must throw, never jump to the current version.
+4. Keep transformations deterministic: no clock, random IDs, or external calls.
+   Preserve existing IDs, pages, layers, strokes, provenance, and metadata. Repeated
+   parsing of the migrated/current document must produce the same data.
+5. Add real v1 fixtures and tests for preservation, source/output validation,
+   repeated migration, missing steps, malformed/future versions, JSON round-trips,
+   and IndexedDB loading. Both entry points must continue using the shared parser.
+6. Run tests, typecheck, lint, and build; document actual compatibility and limitations.
+   Loading currently does not write parsed data back to IndexedDB. Any future
+   migration persistence policy must protect the original on failure.
 
 ### AI-readiness hooks (implemented, no UI)
 

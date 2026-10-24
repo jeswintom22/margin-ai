@@ -2,6 +2,14 @@
 
 Record each meaningful project change during the event, newest first. Update this file in the same commit as the change. Use a real timestamp with timezone, for example `YYYY-MM-DDTHH:MM:SS+05:30`.
 
+## 2026-10-24T21:52:13+05:30 — Explicit document version policy (Bug Fix 3)
+
+- Changed: `lib/document/schema.ts`, `lib/storage/db.ts`, `tests/document.test.ts`, `tests/storage.test.ts`, `README.md`, and `AI_USAGE.md`. A concurrent workstream included the implementation/tests in commit `4d7461d`; this follow-up records the migration policy and verification.
+- Why: remove the fallback that silently relabeled unsupported older documents and make IndexedDB loading/listing share import validation. Version 1 remains current and oldest; no historical formats or AI writing fields were invented. Direct migration calls now validate input and the complete final v1 document.
+- Policy: reject malformed/unsupported older versions, give future versions an update instruction, preserve modeled v1 data and existing page defaults, and never rewrite stored data on load. README explains source validation, explicit consecutive steps, output validation after every step, final validation, deterministic transformations, and tests required for v2.
+- Validation: regression run before implementation reproduced 15 failures; targeted document/storage run then passed 29/29. After adding a v1-default compatibility test, `npm test` passed 68/68 across 8 suites; `npm run typecheck` and `npm run build` passed. Targeted ESLint on all four changed TypeScript files passed. `npm run lint` initially failed with five ref/purity errors in concurrently edited `hooks/useNotebook.ts`; a repeat after concurrent edits failed with one ref-access error and one unused-variable warning in `components/canvas/PaperCanvas.tsx`, outside this task. Tests report an existing Vite config CommonJS/ESM warning. Full-suite results reflect concurrent work in the shared tree.
+- Limitations: v1 is the only supported format, so there are no real migration transformations to test yet. Invalid/unsupported records also cause notebook listing to fail rather than being silently skipped. Loads do not persist normalized data. No UI or AI writing changes.
+
 ## 2026-10-24T21:45:00+05:30 — Basic AI assistant panel (text Q&A)
 
 - Changed: added `app/api/ask/route.ts`, `lib/ai/llm.ts`, `lib/ai/types.ts`, `components/notebook/AssistantPanel.tsx`, `.env.example`, `tests/llm.test.ts`, `tests/askRoute.test.ts`; added an Assistant toggle in `Toolbar.tsx`/`NotebookApp.tsx`; `.gitignore` now allows `.env.example`.
