@@ -7,6 +7,7 @@ import Sidebar from "@/components/notebook/Sidebar";
 import PaperCanvas from "@/components/canvas/PaperCanvas";
 import AssistantPanel from "@/components/notebook/AssistantPanel";
 import { buildNotebookContext } from "@/lib/ai/contextBuilder";
+import { captureRegionPNG } from "@/lib/drawing/capture";
 
 export default function NotebookApp() {
   const nb = useNotebook();
@@ -161,6 +162,7 @@ export default function NotebookApp() {
                 : null
             }
             hasSelection={nb.selectedIds.length > 0}
+            captureSelection={() => (nb.page ? captureRegionPNG(nb.page, nb.selectedIds) : null)}
           />
         )}
       </div>

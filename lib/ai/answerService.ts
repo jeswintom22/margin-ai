@@ -13,6 +13,15 @@
 import { z } from "zod";
 import { chatCompletion, LLMError, type LLMConfig } from "./llm";
 import { notebookContextSchema, contextChars, CONTEXT_LIMITS, type NotebookContext } from "./contextSchema";
+import { resolveModel, type ModelCapability } from "./routing";
+import { parseImageInput } from "./imageInput";
+import type { ChatMessage } from "./llm";
+
+const VISION_PROMPT =
+  "The user attached an image of their handwritten notebook. Transcribe the visible handwriting " +
+  "as accurately as possible, preserving mathematical notation. Clearly separate literal " +
+  "transcription from interpretation, explain ambiguous characters instead of guessing, and say " +
+  "when the image quality prevents reliable interpretation. Do not claim results are verified.";
 import {
   answerDocumentSchema,
   ANSWER_BLOCK_TYPES,
@@ -132,9 +141,19 @@ export async function generateAnswer(
   rawQuestion: string,
   config: LLMConfig,
   fetchImpl: typeof fetch = fetch,
-  context?: unknown
+  context?: unknown,
+  opts: { image?: unknown; capability?: ModelCapability } = {}
 ): Promise<AnswerDocument> {
   const question = normalizeQuestion(rawQuestion);
+  const image = opts.image === undefined ? undefined : parseImageInput(opts.image);
+  const used = resolveModel(
+    {
+      fast: config.fastModel ?? config.model,
+      vision: config.visionModel,
+      reasoning: config.reasoningModel,
+    },
+    { hasImage: !!image, capability: opts.capability }
+  );
   let contextBlock = "";
   if (context) {
     const parsed = notebookContextSchema.safeParse(context);
@@ -157,9 +176,18 @@ export async function generateAnswer(
         config,
         {
           messages: [
-            { role: "system", content: SYSTEM_PROMPT },
-            { role: "user", content: question + contextBlock },
+            { role: "system", content: SYSTEM_PROMPT + (image ? "\n" + VISION_PROMPT : "") },
+            {
+              role: "user",
+              content: image
+                ? [
+                    { type: "text", text: question + contextBlock },
+                    { type: "image_url", image_url: { url: `data:${image.mime};base64,${image.base64}`, detail: "high" } },
+                  ]
+                : question + contextBlock,
+            } satisfies ChatMessage,
           ],
+          model: used.model,
           responseFormat: useSchemaMode ? "json_schema" : "json_object",
           jsonSchema: SCHEMA_HINT,
         },
@@ -176,7 +204,17 @@ export async function generateAnswer(
         lastValidation = `response failed validation: ${summarizeIssues(parsed.error)}`;
         continue;
       }
-      return finalizeDocument(parsed.data, model);
+      const doc = finalizeDocument(parsed.data, model);
+      doc.metadata = {
+        ...doc.metadata,
+        verificationStatus: doc.metadata?.verificationStatus ?? "unverified",
+        warnings: [
+          ...(doc.metadata?.warnings ?? []),
+          `capability: ${used.capability}`,
+          ...(image ? ["transcription: handwriting image interpreted, not verified"] : []),
+        ],
+      };
+      return doc;
     } catch (e) {
       // Provider rejected the request format itself → retry in json_object mode.
       if (e instanceof LLMError && e.providerStatus === 400 && attempt === 1) {

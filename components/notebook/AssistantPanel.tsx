@@ -24,13 +24,16 @@ type Props = {
   getContext: () => NotebookContext | null;
   /** True when strokes are selected (enables selection actions). */
   hasSelection: boolean;
+  /** Capture the selected ink region as a PNG data URL (null if none). */
+  captureSelection?: () => { dataUrl: string; width: number; height: number } | null;
 };
 
 /**
  * Minimal assistant: asks /api/ask and lists the exchanges for this session.
  * Exchanges are kept in memory only; they are not written into the notebook yet.
  */
-export default function AssistantPanel({ onClose, onInsert, getContext, hasSelection }: Props) {
+export default function AssistantPanel({ onClose, onInsert, getContext, hasSelection, captureSelection }: Props) {
+  const [pendingImage, setPendingImage] = useState<{ dataUrl: string; width: number; height: number } | null>(null);
   const [withContext, setWithContext] = useState(false);
   // voice
   const support = typeof window !== "undefined" ? speechSupport(window) : { recognition: false, synthesis: false };
@@ -102,8 +105,14 @@ export default function AssistantPanel({ onClose, onInsert, getContext, hasSelec
       const res = await fetch("/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: ex.question, context: withContext ? getContext() : undefined }),
+        body: JSON.stringify({
+          question: ex.question,
+          context: withContext ? getContext() : undefined,
+          image: pendingImage?.dataUrl,
+          capability: pendingImage ? "vision" : undefined,
+        }),
       });
+      setPendingImage(null);
       const data = (await res.json().catch(() => null)) as AskResponse | null;
       if (data && "answer" in data) update(ex.id, { answer: data.answer });
       else update(ex.id, { error: data?.error ?? `Request failed (HTTP ${res.status})` });
@@ -243,7 +252,31 @@ export default function AssistantPanel({ onClose, onInsert, getContext, hasSelec
           >
             Summarize page
           </button>
+          {captureSelection && (
+            <button
+              type="button"
+              disabled={!hasSelection}
+              title={hasSelection ? "Capture selected ink and send it to the vision model" : "Select ink on the page first"}
+              onClick={() => {
+                const cap = captureSelection();
+                if (!cap) { setDictErr("Nothing selected to capture"); return; }
+                setPendingImage(cap);
+                if (!question.trim()) setQuestion("Read this handwriting");
+              }}
+              className="rounded border border-neutral-300 px-1.5 py-0.5 text-xs text-neutral-600 disabled:opacity-40"
+            >
+              Read handwriting
+            </button>
+          )}
         </div>
+        {pendingImage && (
+          <div className="mb-1 flex items-center gap-2 rounded border border-blue-200 bg-blue-50 px-2 py-1">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={pendingImage.dataUrl} alt={`Selected ink, ${pendingImage.width}×${pendingImage.height}px`} className="h-12 rounded border border-neutral-200" />
+            <span className="text-xs text-neutral-600">This image will be sent to the vision model</span>
+            <button type="button" aria-label="Remove image" onClick={() => setPendingImage(null)} className="ml-auto rounded px-1.5 py-0.5 text-xs text-neutral-600 hover:bg-neutral-200">✕</button>
+          </div>
+        )}
         <textarea
           aria-label="Question for the assistant"
           value={question}

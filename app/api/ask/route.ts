@@ -11,8 +11,18 @@ export async function POST(request: Request) {
     const question = (body as { question?: unknown } | null)?.question;
     const invalid = validateQuestion(question);
     if (invalid) return json({ error: invalid }, 400);
-    const context = (body as { context?: unknown } | null)?.context;
-    const answer = await generateAnswer((question as string).trim(), readLLMConfig(), fetch, context);
+    const b = body as { context?: unknown; image?: unknown; capability?: unknown } | null;
+    const capability =
+      b?.capability === "fast" || b?.capability === "vision" || b?.capability === "reasoning"
+        ? b.capability
+        : undefined;
+    const answer = await generateAnswer(
+      (question as string).trim(),
+      readLLMConfig(),
+      fetch,
+      b?.context,
+      { image: b?.image, capability }
+    );
     return json({ answer }, 200);
   } catch (e) {
     if (e instanceof RequestError) return json({ error: e.message }, e.status, e.retryAfter);

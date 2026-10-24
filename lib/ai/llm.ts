@@ -8,6 +8,10 @@ export type LLMConfig = {
   baseUrl: string;
   model: string;
   timeoutMs: number;
+  /** Optional per-capability models (fall back to `model`). */
+  fastModel?: string;
+  visionModel?: string;
+  reasoningModel?: string;
 };
 
 /** Error with an HTTP status suitable for returning to the browser. */
@@ -41,13 +45,23 @@ export function readLLMConfig(env: Record<string, string | undefined> = process.
     baseUrl: (env.LLM_BASE_URL?.trim() || DEFAULT_BASE_URL).replace(/\/+$/, ""),
     model: env.LLM_MODEL?.trim() || DEFAULT_MODEL,
     timeoutMs,
+    fastModel: env.LLM_FAST_MODEL?.trim() || undefined,
+    visionModel: env.LLM_VISION_MODEL?.trim() || undefined,
+    reasoningModel: env.LLM_REASONING_MODEL?.trim() || undefined,
   };
 }
 
-export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
+/** Multimodal user content: text + image parts (OpenAI-compatible shape). */
+export type ContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string; detail?: "low" | "high" } };
+
+export type ChatMessage = { role: "system" | "user" | "assistant"; content: string | ContentPart[] };
 
 export type ChatOptions = {
   messages: ChatMessage[];
+  /** Model override from the router; defaults to config.model. */
+  model?: string;
   /**
    * Provider-side response format. `json_schema` asks for structured output;
    * `json_object` is the widely-compatible JSON mode fallback.
@@ -93,7 +107,7 @@ export async function chatCompletion(
         Authorization: `Bearer ${config.apiKey}`,
       },
       body: JSON.stringify({
-        model: config.model,
+        model: opts.model ?? config.model,
         messages: opts.messages,
         ...(responseFormat ? { response_format: responseFormat } : {}),
       }),
