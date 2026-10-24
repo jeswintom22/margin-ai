@@ -1,10 +1,7 @@
 # Margin AI — AI-Ready Digital Notebook
 
-A local-first, Xournal++-inspired handwriting notebook built for the DevDay Exchange
-Community Hackathon: Kochi. Its document model is designed so an AI tutor can later
-write solutions onto a user's notes as a separate, non-destructive layer.
-
-**[Event rules](RULES.md)** · **[Agent instructions](AGENTS.md)** · **[Submission](SUBMISSION.md)**
+A local-first, Xournal++-inspired handwriting notebook. Its document model is designed
+so an AI tutor can write solutions onto a user's notes as a separate, non-destructive layer.
 
 ## Project overview
 
@@ -62,8 +59,6 @@ write solutions onto a user's notes as a separate, non-destructive layer.
   [fake-indexeddb](https://github.com/dumbmatter/fakeIndexedDB).
   External API: one OpenAI-compatible chat completions provider of your choice (configured
   via `LLM_BASE_URL`), used only by the assistant. No datasets.
-
-See [AI_USAGE.md](AI_USAGE.md) for AI assistance and [CHANGELOG.md](CHANGELOG.md) for the development record.
 
 ## Assistant request protection and production deployment
 
