@@ -37,16 +37,20 @@ write solutions onto a user's notes as a separate, non-destructive layer.
   JSON export/import with schema validation; multi-tab conflict warning; responsive
   collapsible sidebar; keyboard shortcuts (`P`/`H`/`E`/`S`, `Ctrl+Z`/`Ctrl+Y`,
   `Delete`, `Esc`).
-- **Assistant panel (text Q&A):** the toolbar's **Assistant** button opens a side panel.
-  Questions go to `POST /api/ask`, a Next.js route handler that calls one
-  OpenAI-compatible chat completions API. The API key is read on the server only and never
-  sent to the browser. Answers are plain text, kept in memory for the session, and are not
-  written into the notebook yet.
+- **Assistant panel (structured answers):** the toolbar's **Assistant** button opens a side
+  panel. `POST /api/ask` → `lib/ai/answerService.ts` asks the configured provider for a
+  JSON `AnswerDocument` (title + typed blocks), validated by Zod in `lib/ai/answerSchema.ts`
+  before reaching the browser. The client renders blocks with `AnswerView.tsx`
+  (paragraphs, headings, lists, callouts, math/derivations as LaTeX text, definitions,
+  code, steps, tables, SVG diagrams, annotations). The API key is server-only. Answers
+  stay in the panel; nothing is written into the notebook yet.
 - **Known limitations:** No palm rejection (browsers don't expose reliable palm data);
   eraser removes whole strokes only; multi-tab editing warns but doesn't merge;
   no E2E browser tests yet. Assistant: no conversation memory (each question is
   independent), exchanges are lost on refresh, no streaming, and answers are not yet
-  inserted onto pages. Local request limiting is process-wide only; production requires
+  inserted onto pages. Structured answers: LaTeX is displayed as text (no math renderer
+  yet); diagrams draw in normalized 0-100 SVG space; answers are never labeled verified
+  (no deterministic checking exists). Local request limiting is process-wide only; production requires
   an external per-client rate-limiting gateway (see below).
 - **Libraries, APIs, and public datasets used:**
   [Next.js](https://nextjs.org), [React](https://react.dev),
@@ -118,10 +122,14 @@ lib/
   history/history.ts    PageHistory: undoable ops (addStroke, eraseStrokes)
   storage/db.ts         IndexedDB via idb (notebooks + meta stores)
   storage/exportImport.ts
-app/api/ask/route.ts    POST endpoint: validates question, calls the LLM, maps errors
+app/api/ask/route.ts    POST endpoint: request validation, delegates to answerService
 lib/ai/llm.ts           server-only OpenAI-compatible client (config from env)
+lib/ai/answerSchema.ts  AnswerDocument Zod schema + block limits (client-safe)
+lib/ai/answerService.ts structured generation: prompt, JSON extraction, validation
+lib/ai/requestProtection.ts  body-size limit + local rate limiting
 lib/ai/types.ts         request/response types and validation shared with the client
 components/notebook/AssistantPanel.tsx   question box + answer list
+components/notebook/AnswerView.tsx       typed renderer for answer blocks
 hooks/useNotebook.ts    app store: doc state, tools, autosave, conflicts, AI ops
 tests/                  Vitest suites (geometry, coords, history, document, storage)
 ```
@@ -180,10 +188,12 @@ tests/                  Vitest suites (geometry, coords, history, document, stor
 
 ## Testing
 
-39 tests cover stroke geometry, coordinate conversion under resize, undo/redo,
-eraser restoration, validation/migration, user↔AI layer separation, IndexedDB
-save/reload, the LLM client (request shape, error mapping, timeouts, malformed
-responses), and the `/api/ask` route (validation, missing key, success). A manual verification checklist for mouse/touch/stylus follows.
+135 tests cover stroke geometry, coordinate conversion under resize, undo/redo,
+eraser transactions and gesture cancellation, validation/migration, user↔AI layer
+separation, IndexedDB save/reload, autosave, the LLM client and request protection,
+the answer schema (all block types, limits, invalid inputs), the generation service
+(JSON extraction, json_schema→json_object fallback, bounded retry, error mapping),
+and the `/api/ask` route. A manual verification checklist follows.
 
 ### Manual verification checklist
 
@@ -203,7 +213,7 @@ responses), and the `/api/ask` route (validation, missing key, success). A manua
 - [ ] No double-strokes or dropped strokes on pen-down/pen-up
 - [ ] Pen eraser end erases (if mapped to button 0)
 
-## Next milestone (recommended): AI handwriting layer
+## Next milestone (recommended): render answers onto the page
 
 1. Selection → context extraction (stroke JSON + offscreen region raster).
 2. LLM transport for inference.

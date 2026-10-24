@@ -27,6 +27,21 @@ Record each meaningful project change during the event, newest first. Update thi
 - Validation: regression run before implementation reproduced 15 failures; targeted document/storage run then passed 29/29. After adding a v1-default compatibility test, `npm test` passed 68/68 across 8 suites; `npm run typecheck` and `npm run build` passed. Targeted ESLint on all four changed TypeScript files passed. `npm run lint` initially failed with five ref/purity errors in concurrently edited `hooks/useNotebook.ts`; a repeat after concurrent edits failed with one ref-access error and one unused-variable warning in `components/canvas/PaperCanvas.tsx`, outside this task. Tests report an existing Vite config CommonJS/ESM warning. Full-suite results reflect concurrent work in the shared tree.
 - Limitations: v1 is the only supported format, so there are no real migration transformations to test yet. Invalid/unsupported records also cause notebook listing to fail rather than being silently skipped. Loads do not persist normalized data. No UI or AI writing changes.
 
+## 2026-10-24T22:10:00+05:30 — Structured AI response pipeline
+
+- Changed: new `lib/ai/answerSchema.ts` (AnswerDocument zod schema + limits) and
+  `lib/ai/answerService.ts` (generateAnswer: json_schema → one json_object fallback,
+  JSON extraction, validation, id normalization, unverified metadata);
+  `lib/ai/llm.ts` (`chatCompletion` with response_format + providerStatus);
+  `app/api/ask/route.ts` now returns AnswerDocument; `lib/ai/types.ts`;
+  `components/notebook/AnswerView.tsx` (new) + `AssistantPanel.tsx`; tests updated/added.
+- Why: answers must be typed, validated, and renderable — groundwork for writing AI
+  content into notebook pages later.
+- Validation: `tsc --noEmit` clean; `eslint` clean; `vitest` 135/135 (24 new); `next build`
+  clean; `.next/static` contains no key, provider URL, or system prompt.
+- Limitations: LaTeX shown as text; untested against a live provider in this session;
+  single bounded retry only; no conversation memory.
+
 ## 2026-10-24T22:00:00+05:30 — Fix eraser history and pointer cancellation
 
 - Changed: new `lib/drawing/gesture.ts` (`CanvasGesture` pointer state machine);

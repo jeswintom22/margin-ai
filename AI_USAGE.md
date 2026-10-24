@@ -16,6 +16,7 @@ Use Codex during the hackathon and briefly document its actual contribution here
 | 2026-10-24T22:00+05:30 | Devin (Cognition) | Eraser history + pointer-cancel bugs | Added CanvasGesture and EraseTransaction; cancel no longer commits partial strokes; one undo per eraser drag; fixed multi-stroke restore order | Pending | tsc, lint clean; vitest 83/83; build clean |
 
 | 2026-10-24T21:59:14+05:30 | Devin (Adaptive) | Bug Fix 4: API request limits/abuse protection | Added bounded streamed body parsing, local fixed-window limiter, production external-gateway gate, safe errors/no-store, validated upstream timeout and body-abort mapping; updated route/LLM/protection tests, env example, README, changelog | Human review pending; no Codex contribution claimed | Focused 40/40 and full 111/111 tests pass; typecheck/lint/build pass (build retried after concurrent lock). No paid requests. External production gateway not configured or verified |
+| 2026-10-24T22:10+05:30 | Devin (Cognition) | Structured AI response pipeline | Added answerSchema.ts, answerService.ts, AnswerView.tsx; generalized llm.ts; route + panel now use AnswerDocument; new schema/service/route tests | Pending | tsc, lint clean; vitest 135/135; build clean; no live-provider test |
 
 Notes:
 
