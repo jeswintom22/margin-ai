@@ -27,11 +27,15 @@ const SYSTEM_PROMPT =
 export function readLLMConfig(env: Record<string, string | undefined> = process.env): LLMConfig {
   const apiKey = env.LLM_API_KEY?.trim();
   if (!apiKey) throw new LLMError("The assistant is not configured: LLM_API_KEY is missing", 503);
+  const timeoutMs = env.LLM_TIMEOUT_MS ? Number(env.LLM_TIMEOUT_MS) : 30000;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 120000) {
+    throw new LLMError("The assistant timeout is not configured correctly", 503);
+  }
   return {
     apiKey,
     baseUrl: (env.LLM_BASE_URL?.trim() || DEFAULT_BASE_URL).replace(/\/+$/, ""),
     model: env.LLM_MODEL?.trim() || DEFAULT_MODEL,
-    timeoutMs: Number(env.LLM_TIMEOUT_MS) || 30000,
+    timeoutMs,
   };
 }
 
@@ -71,7 +75,12 @@ export async function askLLM(
     throw new LLMError(`The AI provider returned an error (HTTP ${res.status})`, 502);
   }
 
-  const data: unknown = await res.json().catch(() => null);
+  const data: unknown = await res.json().catch((error: unknown) => {
+    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+      throw new LLMError("The AI provider took too long to respond", 504);
+    }
+    return null;
+  });
   const answer = extractAnswer(data);
   if (!answer) throw new LLMError("The AI provider returned an empty or unexpected response", 502);
   return answer;

@@ -15,6 +15,8 @@ Use Codex during the hackathon and briefly document its actual contribution here
 | 2026-10-24T21:50+05:30 | Devin (Cognition) | Autosave + schema hardening | Committed pre-existing working-tree changes (AutoSaver, strict schema validation, load-time parsing) found during the session; fixed a SaveStatus type re-export error | Pending | tsc, lint clean; vitest 68/68 |
 | 2026-10-24T22:00+05:30 | Devin (Cognition) | Eraser history + pointer-cancel bugs | Added CanvasGesture and EraseTransaction; cancel no longer commits partial strokes; one undo per eraser drag; fixed multi-stroke restore order | Pending | tsc, lint clean; vitest 83/83; build clean |
 
+| 2026-10-24T21:59:14+05:30 | Devin (Adaptive) | Bug Fix 4: API request limits/abuse protection | Added bounded streamed body parsing, local fixed-window limiter, production external-gateway gate, safe errors/no-store, validated upstream timeout and body-abort mapping; updated route/LLM/protection tests, env example, README, changelog | Human review pending; no Codex contribution claimed | Focused 40/40 and full 111/111 tests pass; typecheck/lint/build pass (build retried after concurrent lock). No paid requests. External production gateway not configured or verified |
+
 Notes:
 
 - The AI agent (Devin, powered by Adaptive) authored essentially all application code; the human directed requirements and reviewed the result.
