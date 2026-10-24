@@ -1,11 +1,12 @@
 "use client";
 
 import type { AnswerBlock, AnswerDocument, DiagramPrimitive, ListItem } from "@/lib/ai/answerSchema";
+import MathTex from "@/components/notebook/MathTex";
 
 /**
  * Renders a validated AnswerDocument as React elements. All model text is
- * rendered as strings — never through dangerouslySetInnerHTML. LaTeX is shown
- * as text (styled) until a math renderer or stroke conversion exists.
+ * rendered as strings — never through dangerouslySetInnerHTML. LaTeX goes
+ * through KaTeX (trust off) with a plain-text fallback.
  */
 export default function AnswerView({ doc }: { doc: AnswerDocument }) {
   return (
@@ -61,11 +62,10 @@ function BlockView({ block }: { block: AnswerBlock }) {
       );
 
     case "math":
-      // LaTeX rendered as text until a math renderer is added.
       return (
-        <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-neutral-100 px-2 py-1.5 text-center text-xs text-neutral-800">
-          {block.latex}
-        </pre>
+        <div className="rounded-md bg-neutral-50 px-2 py-1.5 text-center">
+          <MathTex latex={block.latex} display={block.display} />
+        </div>
       );
 
     case "derivation":
@@ -75,9 +75,9 @@ function BlockView({ block }: { block: AnswerBlock }) {
             <li key={i} className="flex gap-2">
               <span className="mt-0.5 shrink-0 text-xs text-neutral-400">{i + 1}.</span>
               <div className="min-w-0">
-                <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded bg-neutral-100 px-2 py-1 text-xs">
-                  {s.latex}
-                </pre>
+                <div className="rounded bg-neutral-50 px-2 py-1">
+                  <MathTex latex={s.latex} />
+                </div>
                 {s.note && <p className="mt-0.5 text-xs text-neutral-500">{s.note}</p>}
               </div>
             </li>
