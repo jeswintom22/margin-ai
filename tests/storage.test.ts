@@ -42,7 +42,7 @@ describe("IndexedDB repository", () => {
     expect(await db.loadNotebook(nb.id)).toEqual(nb);
   });
 
-  it.each([0, -1, 2, "1", null, 1.5])("rejects stored schema version %s consistently with import", async (schemaVersion) => {
+  it.each([0, -1, 3, "1", null, 1.5])("rejects stored schema version %s consistently with import", async (schemaVersion) => {
     const nb = { ...createNotebook("Unsupported"), schemaVersion };
     const connection = await db.getDB();
     await connection.put("notebooks", nb);

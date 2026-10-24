@@ -150,7 +150,12 @@ export default function NotebookApp() {
           )}
         </main>
 
-        {assistantOpen && <AssistantPanel onClose={() => setAssistantOpen(false)} />}
+        {assistantOpen && (
+          <AssistantPanel
+            onClose={() => setAssistantOpen(false)}
+            onInsert={(doc) => nb.insertAnswer(doc)}
+          />
+        )}
       </div>
 
       {nb.selectedIds.length > 0 && (

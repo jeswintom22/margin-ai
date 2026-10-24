@@ -7,6 +7,7 @@ import {
   createStroke,
   userLayer,
   aiLayer,
+  createLayer,
   newId,
   type EditorTool,
   type Notebook,
@@ -16,8 +17,11 @@ import {
   type Point,
   type Stroke,
   type StrokeTool,
+  type PageElement,
 } from "@/lib/document/types";
-import { PageHistory, apply, removeStrokes, EraseTransaction } from "@/lib/history/history";
+import { PageHistory, apply, applyInsertion, removeStrokes, EraseTransaction } from "@/lib/history/history";
+import { layoutAnswer } from "@/lib/ai/answerLayout";
+import type { AnswerDocument } from "@/lib/ai/answerSchema";
 import { strokeIntersectsRect, simplifyPoints, type Rect } from "@/lib/drawing/geometry";
 import * as db from "@/lib/storage/db";
 import { AutoSaver } from "@/lib/storage/autosave";
@@ -432,19 +436,86 @@ export function useNotebook() {
   const canRedo = histFlags.redo;
 
   const undo = useCallback(() => {
-    if (!page) return;
+    const nb = nbRef.current;
+    if (!nb || !page) return;
+    const pageIdBefore = page.id;
     mutate(() => {
-      historyOf(page.id).undo(page);
+      historyOf(pageIdBefore).undoNotebook(nb);
+    });
+    // Undoing an insertion may delete the page we're on.
+    const cur = nb.pages.find((p) => p.id === activePageId);
+    if (!cur) setActivePageId(nb.pages[0].id);
+    setSelectedIds([]);
+  }, [page, activePageId, mutate, historyOf]);
+
+  const redo = useCallback(() => {
+    const nb = nbRef.current;
+    if (!nb || !page) return;
+    mutate(() => {
+      historyOf(page.id).redoNotebook(nb);
     });
     setSelectedIds([]);
   }, [page, mutate, historyOf]);
 
-  const redo = useCallback(() => {
+  // ---------- AI insertion ----------
+
+  /**
+   * Lay out a structured answer and insert it below existing content on the
+   * current page, creating continuation pages as needed. One undoable op
+   * (recorded on the starting page's history). Returns the first page id and
+   * how many pages the answer spans.
+   */
+  const insertAnswer = useCallback(
+    (doc: AnswerDocument): { ok: boolean; error?: string; pageId?: string; pageSpan?: number } => {
+      const nb = nbRef.current;
+      if (!nb || !page) return { ok: false, error: "No page is open" };
+      if (!doc.blocks.length) return { ok: false, error: "The answer is empty" };
+      try {
+        const ai = aiLayer(page);
+        const bottom = (e: PageElement) =>
+          e.type === "rect" ? e.y + e.h : e.type === "line" ? Math.max(e.y1, e.y2) : e.y;
+        const maxY = Math.max(0, ...ai.elements.map(bottom));
+        const { pages: laidOut, groupId } = layoutAnswer(doc, {
+          pageWidth: page.width,
+          pageHeight: page.height,
+          startY: maxY || undefined,
+        });
+        const startIdx = nb.pages.indexOf(page);
+        const appends: { pageId: string; layerId: string; elements: PageElement[] }[] = [
+          { pageId: page.id, layerId: ai.id, elements: laidOut[0] },
+        ];
+        const createdPages: { page: NotebookPage; index: number }[] = [];
+        for (let i = 1; i < laidOut.length; i++) {
+          const p = createPage(`Page ${nb.pages.length + i}`);
+          const l = createLayer("AI", "ai");
+          p.layers.push(l);
+          createdPages.push({ page: p, index: startIdx + i });
+          appends.push({ pageId: p.id, layerId: l.id, elements: laidOut[i] });
+        }
+        const op = { type: "insertElements" as const, groupId, createdPages, appends };
+        mutate(() => {
+          applyInsertion(nb, op);
+          historyOf(page.id).record(op);
+        });
+        setActivePageId(page.id);
+        return { ok: true, pageId: page.id, pageSpan: laidOut.length };
+      } catch {
+        return { ok: false, error: "Could not lay out the answer" };
+      }
+    },
+    [page, mutate, historyOf]
+  );
+
+  /** Remove all AI elements on the current page (one undoable op). */
+  const clearAIContent = useCallback(() => {
     if (!page) return;
+    const layer = page.layers.find((l) => l.author === "ai");
+    if (!layer || layer.elements.length === 0) return;
     mutate(() => {
-      historyOf(page.id).redo(page);
+      const removed = layer.elements.map((element, index) => ({ index, element }));
+      layer.elements = [];
+      historyOf(page.id).record({ type: "removeElements", pageId: page.id, layerId: layer.id, removed });
     });
-    setSelectedIds([]);
   }, [page, mutate, historyOf]);
 
   // ---------- AI-readiness ops (no UI yet) ----------
@@ -534,7 +605,7 @@ export function useNotebook() {
     addPage, renamePage, deletePage, movePage, selectPage, setPaperStyle,
     commitStroke, beginErase, eraseAt, endErase, selectInRect, deleteSelected,
     undo, redo,
-    insertAIStrokes, setAILayerVisible,
+    insertAIStrokes, setAILayerVisible, insertAnswer, clearAIContent,
     exportNotebook, importNotebook, reloadFromStorage,
   };
 }

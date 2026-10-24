@@ -1,4 +1,4 @@
-import { newId, type NotebookPage, type Stroke, type EraserOperation } from "@/lib/document/types";
+import { newId, type Notebook, type NotebookPage, type PageElement, type Stroke, type EraserOperation } from "@/lib/document/types";
 import { strokeHitsPoint } from "@/lib/drawing/geometry";
 
 /**
@@ -13,7 +13,21 @@ export type RemovedStroke = { layerId: string; index: number; stroke: Stroke };
 
 export type Operation =
   | { type: "addStroke"; layerId: string; stroke: Stroke }
-  | { type: "eraseStrokes"; eraserOp: EraserOperation; removed: RemovedStroke[] };
+  | { type: "eraseStrokes"; eraserOp: EraserOperation; removed: RemovedStroke[] }
+  | {
+      type: "insertElements";
+      groupId: string;
+      /** Newly created pages, removed again on undo. */
+      createdPages: { page: NotebookPage; index: number }[];
+      /** Elements appended to existing pages. */
+      appends: { pageId: string; layerId: string; elements: PageElement[] }[];
+    }
+  | {
+      type: "removeElements";
+      pageId: string;
+      layerId: string;
+      removed: { index: number; element: PageElement }[];
+    };
 
 export class PageHistory {
   private undoStack: Operation[] = [];
@@ -50,6 +64,25 @@ export class PageHistory {
     return true;
   }
 
+  /** Undo a notebook-level op (insertElements spans pages). */
+  undoNotebook(nb: Notebook): boolean {
+    const op = this.undoStack.pop();
+    if (!op) return false;
+    if (op.type === "insertElements") revertInsertion(nb, op);
+    else revert(nb.pages.find((p) => p.layers.some((l) => "layerId" in op && l.id === op.layerId)) ?? nb.pages[0], op);
+    this.redoStack.push(op);
+    return true;
+  }
+
+  redoNotebook(nb: Notebook): boolean {
+    const op = this.redoStack.pop();
+    if (!op) return false;
+    if (op.type === "insertElements") applyInsertion(nb, op);
+    else apply(nb.pages.find((p) => p.layers.some((l) => "layerId" in op && l.id === op.layerId)) ?? nb.pages[0], op);
+    this.undoStack.push(op);
+    return true;
+  }
+
   clear() {
     this.undoStack = [];
     this.redoStack = [];
@@ -65,7 +98,11 @@ function layerOf(page: NotebookPage, layerId: string) {
 export function apply(page: NotebookPage, op: Operation) {
   if (op.type === "addStroke") {
     layerOf(page, op.layerId).strokes.push(op.stroke);
-  } else {
+  } else if (op.type === "removeElements") {
+    const layer = layerOf(page, op.layerId);
+    const ids = new Set(op.removed.map((r) => r.element.id));
+    layer.elements = layer.elements.filter((e) => !ids.has(e.id));
+  } else if (op.type === "eraseStrokes") {
     // Remove strokes by id (order-independent), then record the eraser op.
     const ids = new Set(op.removed.map((r) => r.stroke.id));
     for (const layer of page.layers) {
@@ -75,12 +112,31 @@ export function apply(page: NotebookPage, op: Operation) {
   }
 }
 
+/** Apply an insertElements op to the whole notebook (may create pages). */
+export function applyInsertion(nb: Notebook, op: Extract<Operation, { type: "insertElements" }>) {
+  for (const c of op.createdPages) nb.pages.splice(Math.min(c.index, nb.pages.length), 0, c.page);
+  for (const a of op.appends) {
+    const p = nb.pages.find((x) => x.id === a.pageId);
+    const layer = p && layerOf(p, a.layerId);
+    layer?.elements.push(...a.elements);
+  }
+}
+
+export function revertInsertion(nb: Notebook, op: Extract<Operation, { type: "insertElements" }>) {
+  const ids = new Set(op.appends.flatMap((a) => a.elements.map((e) => e.id)));
+  for (const p of nb.pages) {
+    for (const l of p.layers) l.elements = l.elements.filter((e) => !ids.has(e.id));
+  }
+  const created = new Set(op.createdPages.map((c) => c.page.id));
+  nb.pages = nb.pages.filter((p) => !created.has(p.id));
+}
+
 export function revert(page: NotebookPage, op: Operation) {
   if (op.type === "addStroke") {
     const layer = layerOf(page, op.layerId);
     const i = layer.strokes.findIndex((s) => s.id === op.stroke.id);
     if (i >= 0) layer.strokes.splice(i, 1);
-  } else {
+  } else if (op.type === "eraseStrokes") {
     // Each recorded index is the stroke's position just before its own removal,
     // so re-inserting in reverse removal order restores the original order.
     for (let i = op.removed.length - 1; i >= 0; i--) {
@@ -90,6 +146,13 @@ export function revert(page: NotebookPage, op: Operation) {
     }
     const i = page.eraserOperations.findIndex((e) => e.id === op.eraserOp.id);
     if (i >= 0) page.eraserOperations.splice(i, 1);
+  }
+  if (op.type === "removeElements") {
+    const layer = layerOf(page, op.layerId);
+    for (let i = op.removed.length - 1; i >= 0; i--) {
+      const r = op.removed[i];
+      layer.elements.splice(Math.min(r.index, layer.elements.length), 0, r.element);
+    }
   }
 }
 

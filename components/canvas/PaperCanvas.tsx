@@ -174,6 +174,11 @@ export default function PaperCanvas({
     dirty.current = true;
   }, [version, page, selectedIds]);
 
+  // Repaint once the handwriting font is ready so AI text uses it.
+  useEffect(() => {
+    document.fonts?.load('16px Kalam').then(() => { dirty.current = true; }).catch(() => {});
+  }, []);
+
   useEffect(() => {
     resize();
     const ro = new ResizeObserver(() => {

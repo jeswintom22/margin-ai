@@ -20,6 +20,8 @@ export type AssistantExchange = {
   question: string;
   answer?: AnswerDocument;
   error?: string;
+  /** Shown after "Write to Notebook" is used. */
+  insertedNote?: string;
   createdAt: number;
 };
 

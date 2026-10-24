@@ -9,17 +9,25 @@ import {
   type AssistantExchange,
 } from "@/lib/ai/types";
 import AnswerView from "@/components/notebook/AnswerView";
+import type { AnswerDocument } from "@/lib/ai/answerSchema";
 
-type Props = { onClose: () => void };
+type Props = {
+  onClose: () => void;
+  /** Insert an answer into the notebook; returns the result. */
+  onInsert: (doc: AnswerDocument) => { ok: boolean; error?: string; pageSpan?: number };
+};
 
 /**
  * Minimal assistant: asks /api/ask and lists the exchanges for this session.
  * Exchanges are kept in memory only; they are not written into the notebook yet.
  */
-export default function AssistantPanel({ onClose }: Props) {
+export default function AssistantPanel({ onClose, onInsert }: Props) {
   const [question, setQuestion] = useState("");
   const [exchanges, setExchanges] = useState<AssistantExchange[]>([]);
   const [pending, setPending] = useState(false);
+
+  const update = (id: string, patch: Partial<AssistantExchange>) =>
+    setExchanges((list) => list.map((x) => (x.id === id ? { ...x, ...patch } : x)));
 
   const ask = async () => {
     const invalid = validateQuestion(question);
@@ -28,8 +36,6 @@ export default function AssistantPanel({ onClose }: Props) {
     setExchanges((list) => [...list, ex]);
     setQuestion("");
     setPending(true);
-    const update = (patch: Partial<AssistantExchange>) =>
-      setExchanges((list) => list.map((x) => (x.id === ex.id ? { ...x, ...patch } : x)));
     try {
       const res = await fetch("/api/ask", {
         method: "POST",
@@ -37,10 +43,10 @@ export default function AssistantPanel({ onClose }: Props) {
         body: JSON.stringify({ question: ex.question }),
       });
       const data = (await res.json().catch(() => null)) as AskResponse | null;
-      if (data && "answer" in data) update({ answer: data.answer });
-      else update({ error: data?.error ?? `Request failed (HTTP ${res.status})` });
+      if (data && "answer" in data) update(ex.id, { answer: data.answer });
+      else update(ex.id, { error: data?.error ?? `Request failed (HTTP ${res.status})` });
     } catch {
-      update({ error: "Network error — could not reach the server" });
+      update(ex.id, { error: "Network error — could not reach the server" });
     } finally {
       setPending(false);
     }
@@ -73,6 +79,23 @@ export default function AssistantPanel({ onClose }: Props) {
             {ex.answer && (
               <div className="overflow-hidden rounded-md border border-neutral-200 bg-white px-2 py-2">
                 <AnswerView doc={ex.answer} />
+                <div className="mt-1.5 flex items-center gap-2 border-t border-neutral-100 pt-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const r = onInsert(ex.answer!);
+                      update(ex.id, {
+                        insertedNote: r.ok
+                          ? `Inserted${r.pageSpan && r.pageSpan > 1 ? ` across ${r.pageSpan} pages` : ""}`
+                          : (r.error ?? "Insertion failed"),
+                      });
+                    }}
+                    className="rounded-md bg-blue-600 px-2.5 py-1 text-xs text-white hover:bg-blue-700"
+                  >
+                    Write to Notebook
+                  </button>
+                  {ex.insertedNote && <span className="text-xs text-neutral-500">{ex.insertedNote}</span>}
+                </div>
               </div>
             )}
             {ex.error && (
