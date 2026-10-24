@@ -179,9 +179,12 @@ export function useVoiceAssistant(nb: NotebookStore, opts: Opts) {
       busy.current = true;
       setState((s) => (s === "off" ? s : "thinking"));
 
-      const needsInk = intent.kind === "tutor" || intent.kind === "explain";
-      const ids = needsInk ? store.selectedIds : [];
-      const image = needsInk ? optsRef.current.capture()?.dataUrl : undefined;
+      // Whenever ink is selected it goes along with the question — the user
+      // is almost always asking *about* it ("what's this?"), even when the
+      // phrasing isn't a recognized tutor command.
+      const hasInk = store.selectedIds.length > 0;
+      const ids = hasInk ? store.selectedIds : [];
+      const image = hasInk ? optsRef.current.capture()?.dataUrl : undefined;
       const question =
         intent.kind === "tutor" ? text : intent.kind === "explain" ? intent.question : intent.question;
       const mode = intent.kind === "tutor" ? intent.mode : undefined;
