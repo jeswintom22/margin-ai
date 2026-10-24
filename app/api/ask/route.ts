@@ -1,8 +1,9 @@
-import { askLLM, readLLMConfig, LLMError } from "@/lib/ai/llm";
+import { readLLMConfig, LLMError } from "@/lib/ai/llm";
+import { generateAnswer } from "@/lib/ai/answerService";
 import { validateQuestion, type AskResponse } from "@/lib/ai/types";
 import { enforceRequestLimit, readRequestJSON, RequestError } from "@/lib/ai/requestProtection";
 
-/** POST /api/ask — { question } → { answer } | { error } */
+/** POST /api/ask — { question } → { answer: AnswerDocument } | { error } */
 export async function POST(request: Request) {
   try {
     enforceRequestLimit();
@@ -10,7 +11,7 @@ export async function POST(request: Request) {
     const question = (body as { question?: unknown } | null)?.question;
     const invalid = validateQuestion(question);
     if (invalid) return json({ error: invalid }, 400);
-    const answer = await askLLM((question as string).trim(), readLLMConfig());
+    const answer = await generateAnswer((question as string).trim(), readLLMConfig());
     return json({ answer }, 200);
   } catch (e) {
     if (e instanceof RequestError) return json({ error: e.message }, e.status, e.retryAfter);

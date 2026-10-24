@@ -5,18 +5,20 @@
 
 export const MAX_QUESTION_LENGTH = 4000;
 
+import type { AnswerDocument } from "./answerSchema";
+
 export type AskRequest = { question: string };
 
-export type AskResponse = { answer: string } | { error: string };
+export type AskResponse = { answer: AnswerDocument } | { error: string };
 
 /**
- * One assistant exchange. The answer is plain text so a later milestone can
- * render it as AI-authored strokes in the page's AI layer.
+ * One assistant exchange. Answers are structured AnswerDocuments; a later
+ * phase can render their blocks as AI-authored strokes in the page's AI layer.
  */
 export type AssistantExchange = {
   id: string;
   question: string;
-  answer?: string;
+  answer?: AnswerDocument;
   error?: string;
   createdAt: number;
 };

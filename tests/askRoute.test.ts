@@ -99,16 +99,37 @@ describe("POST /api/ask", () => {
     expect((await res.json()).error).toMatch(/LLM_API_KEY/);
   });
 
-  it("returns the provider answer", async () => {
+  it("returns a validated structured answer", async () => {
     vi.stubEnv("LLM_API_KEY", "k");
     vi.stubEnv("LLM_BASE_URL", "https://llm.example/v1");
+    const doc = {
+      schemaVersion: 1,
+      title: "Greeting",
+      blocks: [{ id: "x", type: "paragraph", text: "Hello!" }],
+    };
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ choices: [{ message: { content: "Hello!" } }] }), { status: 200 })
+      new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(doc) } }] }), { status: 200 })
     );
     vi.stubGlobal("fetch", fetchMock);
     const res = await post({ question: "hi" });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ answer: "Hello!" });
+    const body = await res.json();
+    expect(body.answer.title).toBe("Greeting");
+    expect(body.answer.blocks[0]).toMatchObject({ type: "paragraph", text: "Hello!" });
     expect(fetchMock.mock.calls[0][0]).toBe("https://llm.example/v1/chat/completions");
+  });
+
+  it("returns 502 when the model produces invalid structured output", async () => {
+    vi.stubEnv("LLM_API_KEY", "k");
+    // Fresh Response per call: a body can only be read once, and the service retries once.
+    const fetchMock = vi.fn().mockImplementation(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ choices: [{ message: { content: "just prose, no JSON" } }] }), { status: 200 })
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const res = await post({ question: "hi" });
+    expect(res.status).toBe(502);
+    expect((await res.json()).error).toMatch(/structured answer/i);
   });
 });

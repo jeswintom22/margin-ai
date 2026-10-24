@@ -8,6 +8,7 @@ import {
   type AskResponse,
   type AssistantExchange,
 } from "@/lib/ai/types";
+import AnswerView from "@/components/notebook/AnswerView";
 
 type Props = { onClose: () => void };
 
@@ -70,9 +71,9 @@ export default function AssistantPanel({ onClose }: Props) {
           <li key={ex.id} className="space-y-1.5">
             <p className="rounded-md bg-neutral-200 px-2 py-1.5 text-sm text-neutral-800">{ex.question}</p>
             {ex.answer && (
-              <p className="whitespace-pre-wrap rounded-md border border-neutral-200 bg-white px-2 py-1.5 text-sm text-neutral-800">
-                {ex.answer}
-              </p>
+              <div className="overflow-hidden rounded-md border border-neutral-200 bg-white px-2 py-2">
+                <AnswerView doc={ex.answer} />
+              </div>
             )}
             {ex.error && (
               <p role="alert" className="rounded-md bg-red-50 px-2 py-1.5 text-sm text-red-700">

@@ -14,7 +14,6 @@ import { z } from "zod";
 import { chatCompletion, LLMError, type LLMConfig } from "./llm";
 import {
   answerDocumentSchema,
-  ANSWER_SCHEMA_VERSION,
   ANSWER_BLOCK_TYPES,
   LIMITS,
   type AnswerDocument,
@@ -69,7 +68,12 @@ const SCHEMA_HINT = {
 /** One extra attempt after a formatting failure — never a loop. */
 const MAX_ATTEMPTS = 2;
 
-export class AnswerError extends LLMError {}
+export class AnswerError extends LLMError {
+  constructor(message: string, status: number) {
+    super(message, status);
+    this.name = "AnswerError";
+  }
+}
 
 export function normalizeQuestion(question: string): string {
   return question.trim().replace(/\n{3,}/g, "\n\n");
