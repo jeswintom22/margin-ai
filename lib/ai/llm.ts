@@ -12,7 +12,12 @@ export type LLMConfig = {
 
 /** Error with an HTTP status suitable for returning to the browser. */
 export class LLMError extends Error {
-  constructor(message: string, readonly status: number) {
+  constructor(
+    message: string,
+    readonly status: number,
+    /** Raw upstream status, when the failure came from the provider. Never send to the client. */
+    readonly providerStatus?: number
+  ) {
     super(message);
     this.name = "LLMError";
   }
@@ -39,11 +44,46 @@ export function readLLMConfig(env: Record<string, string | undefined> = process.
   };
 }
 
-export async function askLLM(
-  question: string,
+export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
+
+export type ChatOptions = {
+  messages: ChatMessage[];
+  /**
+   * Provider-side response format. `json_schema` asks for structured output;
+   * `json_object` is the widely-compatible JSON mode fallback.
+   */
+  responseFormat?: "json_schema" | "json_object";
+  /** A JSON Schema document sent with json_schema mode (non-strict). */
+  jsonSchema?: { name: string; schema: Record<string, unknown> };
+};
+
+export type ChatResult = { content: string; model?: string };
+
+/**
+ * One chat completion call. Returns the message content; throws LLMError for
+ * transport, timeout, and provider failures. Provider error bodies are never
+ * forwarded — they can echo request details — but `providerStatus` is recorded
+ * so callers can distinguish "unsupported feature" (4xx) from server faults.
+ */
+export async function chatCompletion(
   config: LLMConfig,
+  opts: ChatOptions,
   fetchImpl: typeof fetch = fetch
-): Promise<string> {
+): Promise<ChatResult> {
+  let responseFormat: Record<string, unknown> | undefined;
+  if (opts.responseFormat === "json_schema") {
+    responseFormat = {
+      type: "json_schema",
+      json_schema: {
+        name: opts.jsonSchema?.name ?? "answer",
+        strict: false,
+        schema: opts.jsonSchema?.schema ?? { type: "object" },
+      },
+    };
+  } else if (opts.responseFormat === "json_object") {
+    responseFormat = { type: "json_object" };
+  }
+
   let res: Response;
   try {
     res = await fetchImpl(`${config.baseUrl}/chat/completions`, {
@@ -54,10 +94,8 @@ export async function askLLM(
       },
       body: JSON.stringify({
         model: config.model,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: question },
-        ],
+        messages: opts.messages,
+        ...(responseFormat ? { response_format: responseFormat } : {}),
       }),
       signal: AbortSignal.timeout(config.timeoutMs),
     });
@@ -70,9 +108,12 @@ export async function askLLM(
   if (!res.ok) {
     // Don't forward the provider's error body; it can echo request details.
     if (res.status === 401 || res.status === 403)
-      throw new LLMError("The AI provider rejected the API key", 502);
-    if (res.status === 429) throw new LLMError("The AI provider is rate limiting requests; try again shortly", 429);
-    throw new LLMError(`The AI provider returned an error (HTTP ${res.status})`, 502);
+      throw new LLMError("The AI provider rejected the API key", 502, res.status);
+    if (res.status === 429)
+      throw new LLMError("The AI provider is rate limiting requests; try again shortly", 429, 429);
+    if (res.status >= 400 && res.status < 500)
+      throw new LLMError("The AI provider rejected the request", 502, res.status);
+    throw new LLMError(`The AI provider returned an error (HTTP ${res.status})`, 502, res.status);
   }
 
   const data: unknown = await res.json().catch((error: unknown) => {
@@ -81,9 +122,30 @@ export async function askLLM(
     }
     return null;
   });
-  const answer = extractAnswer(data);
-  if (!answer) throw new LLMError("The AI provider returned an empty or unexpected response", 502);
-  return answer;
+  const parsed = data as { choices?: { message?: { content?: unknown } }[]; model?: unknown } | null;
+  const content = extractAnswer(data);
+  if (!content) throw new LLMError("The AI provider returned an empty or unexpected response", 502);
+  const model = typeof parsed?.model === "string" ? parsed.model.slice(0, 100) : undefined;
+  return { content, model };
+}
+
+/** Plain-text question answering (kept for simple callers). */
+export async function askLLM(
+  question: string,
+  config: LLMConfig,
+  fetchImpl: typeof fetch = fetch
+): Promise<string> {
+  const { content } = await chatCompletion(
+    config,
+    {
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: question },
+      ],
+    },
+    fetchImpl
+  );
+  return content;
 }
 
 function extractAnswer(data: unknown): string | null {
