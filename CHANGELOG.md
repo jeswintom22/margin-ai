@@ -9,6 +9,16 @@
 - Validation: focused `npm test -- tests/askRoute.test.ts tests/llm.test.ts tests/requestProtection.test.ts` passed 40/40; `npm test` passed 111/111 across 11 suites; `npm run typecheck`, `npm run lint`, and `npm run build` passed. First build attempt was blocked by a concurrent build; retry passed without removing locks. Tests mock external fetch/limiter dependencies, use an injected clock for window boundaries, and make no paid API calls. Existing Vite CommonJS/ESM config warning remains. Full checks reflect the shared working tree.
 - Limitations: no gateway exists in repository configuration, so production protection is not complete until deployment integration is verified. Local quota is global per process and resets on restart. Gateway upload deadlines/concurrency limits, authentication, provider budgets/output caps, and distributed-IP abuse remain deployment responsibilities; no user-facing workflow/UI changes.
 
+## 2026-10-24T21:53:05+05:30 — Correct Devin Hack Kochi event guidance
+
+- Changed: corrected the current event name and AI tool guidance in `.github/pull_request_template.md`, `AGENTS.md`, `AI_USAGE.md`, `CHANGELOG.md`, `README.md`, `RULES.md`, `SUBMISSION.md`.
+- Why: the organizer shared an older event template; Devin Hack Kochi has no
+  major AI usage constraints and the template must not require a particular AI provider.
+- Scope: preserved project implementation and historical assistance records.
+- Removed obsolete template logistics, participation limits, and credit promises; current organizer instructions remain authoritative.
+- Validation: reviewed documentation diffs, checked whitespace with `git diff --check`, and checked local Markdown links for new breakage.
+- Limitations: maintainer review is pending; application tests were not run for this documentation-only correction.
+
 Record each meaningful project change during the event, newest first. Update this file in the same commit as the change. Use a real timestamp with timezone, for example `YYYY-MM-DDTHH:MM:SS+05:30`.
 
 ## 2026-10-24T21:56:00+05:30 — Persistence and autosave reliability (Bug Fix 2)

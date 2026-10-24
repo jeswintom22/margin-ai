@@ -1,6 +1,6 @@
 # AI usage record
 
-Use Codex during the hackathon and briefly document its actual contribution here. Add a row after each meaningful task or milestone. Keep summaries concise and omit secrets, private data, and full chat transcripts.
+If maintaining this record, briefly document the actual contributions of whichever AI tools you use at Devin Hack Kochi. Add a row after each meaningful task or milestone. Keep summaries concise and omit secrets, private data, and full chat transcripts.
 
 ## Event build log
 
@@ -21,3 +21,13 @@ Notes:
 
 - The AI agent (Devin, powered by Adaptive) authored essentially all application code; the human directed requirements and reviewed the result.
 - Known corrections applied during the session: fixed a dead `widthAt` helper in `lib/drawing/render.ts`, fixed `fake-indexeddb` missing globals in `tests/storage.test.ts`, and refactored ref-access-during-render to satisfy Next.js 16's react-hooks lint rules.
+
+## Event documentation correction — 2026-10-24T21:53:05+05:30
+
+- Tool: Codex.
+- Task: correct the organizer-shared template to Devin Hack Kochi and clarify
+  that the event has no major AI usage constraints.
+- Affected files: `.github/pull_request_template.md`, `AGENTS.md`, `AI_USAGE.md`, `CHANGELOG.md`, `README.md`, `RULES.md`, `SUBMISSION.md`.
+- Human review: pending maintainer review of this pull request.
+- Validation: documentation diff, whitespace, and local Markdown link checks;
+  no application code changed and no runtime checks were needed.

@@ -1,7 +1,7 @@
 # Margin AI — AI-Ready Digital Notebook
 
-A local-first, Xournal++-inspired handwriting notebook built for the DevDay Exchange
-Community Hackathon: Kochi. Its document model is designed so an AI tutor can later
+A local-first, Xournal++-inspired handwriting notebook built for Devin Hack Kochi.
+Its document model is designed so an AI tutor can later
 write solutions onto a user's notes as a separate, non-destructive layer.
 
 **[Event rules](RULES.md)** · **[Agent instructions](AGENTS.md)** · **[Submission](SUBMISSION.md)**
@@ -13,7 +13,7 @@ write solutions onto a user's notes as a separate, non-destructive layer.
   multiple notebooks and pages. Everything autosaves to the browser (IndexedDB) and
   survives refresh. The layered document model keeps future AI-authored strokes
   structurally separate from user content — MVP 1 ships no AI features.
-- **Team:** TODO — participant names and GitHub handles; maximum 4 members.
+- **Team:** TODO — participant names and GitHub handles.
 - **Working demo:** Local — `npm install && npm run dev`, open http://localhost:3000.
 - **Technology stack:** Next.js 16 (App Router), React 19, TypeScript (strict),
   Tailwind CSS 4, HTML Canvas, Pointer Events, IndexedDB (`idb`), `zod`, Vitest.
@@ -210,3 +210,9 @@ responses), and the `/api/ask` route (validation, missing key, success). A manua
 3. `insertAIStrokes` to place generated strokes on the AI layer.
 4. AI layer management UI: visibility toggle, accept/reject per group, and a `text`
    object type via a `schemaVersion` migration.
+
+## Event clarification
+
+Devin Hack Kochi has no major AI usage constraints. Participants may use Devin and other AI tools, models, and providers; this template does not require Codex or restrict AI usage to OpenAI. AI usage notes are project documentation, not an additional event eligibility requirement.
+
+See [RULES.md](RULES.md) for the corrected event guidance.
