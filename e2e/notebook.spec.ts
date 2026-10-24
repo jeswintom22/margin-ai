@@ -57,6 +57,7 @@ async function eraseThrough(page: Page, yFrac = 0.4) {
 
 async function askAndInsert(page: Page) {
   await page.getByRole("button", { name: "Assistant" }).click();
+  await page.getByRole("radio", { name: "Ask" }).click();
   await page.getByLabel("Question for the assistant").fill("Explain something");
   await page.getByLabel("Question for the assistant").press("Enter");
   const write = page.getByRole("button", { name: "Write to Notebook" });
