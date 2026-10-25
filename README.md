@@ -1,15 +1,27 @@
 # Margin AI — AI-Ready Digital Notebook
 
-A local-first, Xournal++-inspired handwriting notebook. Its document model is designed
-so an AI tutor can write solutions onto a user's notes as a separate, non-destructive layer.
+Margin AI is a local-first, Xournal++-inspired handwriting notebook for mouse, touch,
+and stylus input. Notes autosave to the browser, while the document model keeps
+AI-authored content in a separate, non-destructive layer.
+
+## Screenshots
+
+### Desktop workspace
+
+![Margin AI desktop workspace](public/screenshots/workspace.png)
+
+### Responsive layout
+
+The notebook remains usable on narrow screens with a collapsible, scrollable sidebar.
+
+![Margin AI responsive layout](public/screenshots/mobile.png)
 
 ## Project overview
 
 - **Project name:** Margin AI
 - **Short description:** Write handwritten notes with mouse, touch, or stylus across
   multiple notebooks and pages. Everything autosaves to the browser (IndexedDB) and
-  survives refresh. The layered document model keeps future AI-authored strokes
-  structurally separate from user content — MVP 1 ships no AI features.
+  survives refresh. AI-generated page elements are stored separately from user ink.
 - **Team:** TODO — participant names and GitHub handles; maximum 4 members.
 - **Working demo:** Local — `npm install && npm run dev`, open http://localhost:3000.
 - **Technology stack:** Next.js 16 (App Router), React 19, TypeScript (strict),
@@ -28,30 +40,27 @@ so an AI tutor can write solutions onto a user's notes as a separate, non-destru
 
 ### Current status
 
-- **Working features:** pen/highlighter/eraser/selection tools with pressure-aware
-  strokes; per-page undo/redo; notebook & page management (create/rename/reorder/
-  delete with confirms); blank/ruled/grid paper; debounced autosave + save status;
-  JSON export/import with schema validation; multi-tab conflict warning; responsive
-  collapsible sidebar; keyboard shortcuts (`P`/`H`/`E`/`S`, `Ctrl+Z`/`Ctrl+Y`,
-  `Delete`, `Esc`).
-- **Assistant panel (structured answers):** the toolbar's **Assistant** button opens a side
-  panel. `POST /api/ask` → `lib/ai/answerService.ts` asks the configured provider for a
-  JSON `AnswerDocument` (title + typed blocks), validated by Zod in `lib/ai/answerSchema.ts`
-  before reaching the browser. The client renders blocks with `AnswerView.tsx`
-  (paragraphs, headings, lists, callouts, math/derivations as LaTeX text, definitions,
-  code, steps, tables, SVG diagrams, annotations). The API key is server-only. Answers
-  stay in the panel until the user clicks **Write to Notebook**, which lays out the
-  answer into positioned `PageElement`s on the page's AI layer (new pages are created
-  as needed). AI content renders in a bundled handwriting font (Kalam, OFL); LaTeX is
-  shown as styled text; diagrams use the normalized SVG→page mapping.
-- **Known limitations:** No palm rejection (browsers don't expose reliable palm data);
-  eraser removes whole strokes only; multi-tab editing warns but doesn't merge;
-  no E2E browser tests yet. Assistant: no conversation memory (each question is
-  independent), exchanges are lost on refresh, no streaming, and answers are not yet
-  inserted onto pages. Structured answers: LaTeX is displayed as text (no math renderer
-  yet); diagrams draw in normalized 0-100 SVG space; answers are never labeled verified
-  (no deterministic checking exists). Local request limiting is process-wide only; production requires
-  an external per-client rate-limiting gateway (see below).
+- **Working features:** pen, highlighter, eraser, rectangular selection, and lasso
+  tools with pressure-aware strokes; notebook-wide undo/redo; notebook and page
+  management (create, rename, reorder, and delete with confirmation); blank, ruled,
+  and grid paper; debounced autosave with save status; JSON export/import with schema
+  validation; PDF page import; multi-tab conflict warning; responsive collapsible
+  sidebar; and keyboard shortcuts (`P`/`H`/`E`/`S`/`L`, `Ctrl+Z`/`Ctrl+Y`, `Delete`,
+  `Esc`).
+- **Voice assistant:** use the microphone button or `Ctrl+M` to ask a question about
+  the current page. Margin AI captures the selected region (or the whole page), sends
+  the request through the server-only `POST /api/ask` route, and reads the response
+  aloud when browser speech APIs are available. Configure an OpenAI-compatible provider
+  to enable it; note-taking works without an API key.
+- **AI-ready document model:** user ink and AI content are stored on separate layers.
+  Structured answers are validated before use and can be laid out as typed page
+  elements. AI content can be hidden, shown, cleared, and undone without modifying
+  the user's strokes.
+- **Known limitations:** browsers do not expose reliable palm data, the eraser removes
+  whole strokes only, and multi-tab editing warns but does not merge changes. The voice
+  assistant has no conversation memory, does not stream, and depends on browser speech
+  recognition/synthesis support. LaTeX is currently rendered as styled text. Production
+  deployments need an external per-client rate-limiting gateway (see below).
 - **Libraries, APIs, and public datasets used:**
   [Next.js](https://nextjs.org), [React](https://react.dev),
   [Tailwind CSS](https://tailwindcss.com), [idb](https://github.com/jakearchibald/idb),
