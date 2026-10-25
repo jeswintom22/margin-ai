@@ -1,4 +1,5 @@
 import type { NotebookPage, PageElement, PaperStyle, Stroke } from "@/lib/document/types";
+import { drawStrokeText } from "@/lib/drawing/strokeFont";
 
 // ---- page backgrounds (imported PDF pages) ----
 
@@ -37,8 +38,18 @@ export const MONO_FONT = "'Cascadia Mono', Consolas, 'Courier New', monospace";
 
 export function drawElement(ctx: CanvasRenderingContext2D, el: PageElement) {
   if (el.type === "text") {
+    if (el.font === "hand") {
+      // AI handwriting: real pen strokes with per-element jitter.
+      drawStrokeText(ctx, el.text, el.x, el.y, el.size, {
+        color: el.color ?? "#1d4ed8",
+        bold: el.bold,
+        seed: el.id,
+        fallbackFont: HAND_FONT,
+      });
+      return;
+    }
     ctx.fillStyle = el.color ?? "#1d4ed8";
-    ctx.font = `${el.bold ? "700 " : ""}${el.size}px ${el.font === "mono" ? MONO_FONT : HAND_FONT}`;
+    ctx.font = `${el.bold ? "700 " : ""}${el.size}px ${MONO_FONT}`;
     ctx.textBaseline = "alphabetic";
     ctx.fillText(el.text, el.x, el.y);
   } else if (el.type === "line") {
