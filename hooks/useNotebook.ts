@@ -513,8 +513,10 @@ export function useNotebook() {
           .filter((b) => b.maxY > 0 && b.minY < page.height && b.maxX > 0 && b.minX < page.width)
           .map((b) => Math.min(b.maxY, page.height));
         const maxY = Math.max(0, ...ai.elements.map(bottom), ...inkBottom);
-        const flowOpts = { pageWidth: page.width, pageHeight: page.height, startY: maxY || undefined };
         const nearStrokes = near?.length ? page.layers.flatMap((l) => l.strokes).filter((s) => near.includes(s.id)) : [];
+        // Match user's pen color: selected/near ink, else recent page ink, else active pen tool color
+        const userInkColor = nearStrokes.at(-1)?.color ?? userLayer(page).strokes.at(-1)?.color ?? color;
+        const flowOpts = { pageWidth: page.width, pageHeight: page.height, startY: maxY || undefined, inkColor: userInkColor };
         const { pages: laidOut, groupId, placement } = nearStrokes.length
           ? placeNearSelection(doc, unionBounds(nearStrokes.map(strokeBounds)), flowOpts)
           : placeOnPage(doc, flowOpts);
@@ -541,7 +543,7 @@ export function useNotebook() {
         return { ok: false, error: "Could not lay out the answer" };
       }
     },
-    [page, mutate]
+    [page, mutate, color]
   );
 
   /** Write check marks beside the selected lines (one undoable insertion). */
