@@ -5,9 +5,11 @@ import { useNotebook } from "@/hooks/useNotebook";
 import { useVoiceAssistant } from "@/hooks/useVoiceAssistant";
 import Toolbar from "@/components/notebook/Toolbar";
 import Sidebar from "@/components/notebook/Sidebar";
-import PaperCanvas from "@/components/canvas/PaperCanvas";
+import PaperCanvas, { type PaperCanvasApi } from "@/components/canvas/PaperCanvas";
 import VoiceDock from "@/components/notebook/VoiceDock";
 import StatusBar from "@/components/notebook/StatusBar";
+import MobileSheet from "@/components/menu/MobileSheet";
+import type { MenuSection } from "@/components/menu/menuModel";
 import { buildNotebookContext } from "@/lib/ai/contextBuilder";
 import { captureRegionPNG } from "@/lib/drawing/capture";
 import { readPdfFile, pdfToPages, PdfImportError } from "@/lib/pdf/importPdf";
@@ -35,19 +37,31 @@ export default function NotebookApp() {
     voiceToggle.current = voice.toggle;
   }, [voice.toggle]);
   const [pdfBusy, setPdfBusy] = useState(false);
-  const [pdfError, setPdfError] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const canvasApi = useRef<PaperCanvasApi | null>(null);
+  const pdfInputRef = useRef<HTMLInputElement>(null);
+  const jsonInputRef = useRef<HTMLInputElement>(null);
   const importPdf = async (file: File) => {
     setPdfBusy(true);
-    setPdfError(null);
+    setImportError(null);
     try {
       const data = await readPdfFile(file);
       nb.importPdfPages(await pdfToPages(data, { name: file.name.replace(/\.pdf$/i, "") }));
     } catch (e) {
-      setPdfError(e instanceof PdfImportError ? e.message : "The PDF could not be imported.");
+      setImportError(e instanceof PdfImportError ? e.message : "The PDF could not be imported.");
     } finally {
       setPdfBusy(false);
     }
   };
+  const importNotebookJson = async (file: File) => {
+    const res = await nb.importNotebook(await file.text());
+    if (!res.ok) setImportError(res.error ?? "The notebook could not be imported.");
+  };
+  const closeMenu = useCallback(() => {
+    setMenuOpen(false);
+    document.getElementById("app-menu-btn")?.focus();
+  }, []);
 
   // keyboard shortcuts
   useEffect(() => {
@@ -96,35 +110,127 @@ export default function NotebookApp() {
   }
 
   const aiLayerOnPage = nb.page?.layers.find((l) => l.author === "ai");
+  const aiCount = aiLayerOnPage?.elements.length ?? 0;
+  const aiVisible = aiLayerOnPage?.visible ?? true;
+  const paperStyle = nb.page?.paperStyle ?? "ruled";
+
+  // One item tree feeds the desktop menubar and the mobile bottom sheet.
+  const menus: MenuSection[] = [
+    {
+      id: "file",
+      label: "File",
+      items: [
+        { type: "action", id: "new-notebook", label: "New notebook", onSelect: () => void nb.addNotebook("Untitled") },
+        { type: "action", id: "new-page", label: "New page", onSelect: nb.addPage },
+        { type: "divider", id: "f-d1" },
+        { type: "action", id: "import-pdf", label: pdfBusy ? "Importing PDF…" : "Import PDF…", disabled: pdfBusy, onSelect: () => pdfInputRef.current?.click() },
+        { type: "action", id: "import-json", label: "Import notebook (.json)…", onSelect: () => jsonInputRef.current?.click() },
+        { type: "action", id: "export", label: "Export notebook (.json)", onSelect: nb.exportNotebook },
+        { type: "divider", id: "f-d2" },
+        {
+          type: "action",
+          id: "del-notebook",
+          label: `Delete “${nb.notebook?.title ?? "notebook"}”`,
+          danger: true,
+          onSelect: () => {
+            const nbk = nb.notebook;
+            if (nbk && window.confirm(`Delete notebook "${nbk.title}"? This cannot be undone.`)) void nb.removeNotebook(nbk.id);
+          },
+        },
+      ],
+    },
+    {
+      id: "view",
+      label: "View",
+      items: [
+        { type: "action", id: "sidebar", label: "Sidebar", checked: sidebarOpen, onSelect: () => setSidebarOpen((o) => !o) },
+        { type: "divider", id: "v-d1" },
+        { type: "action", id: "paper-blank", label: "Blank paper", checked: paperStyle === "blank", onSelect: () => nb.setPaperStyle("blank") },
+        { type: "action", id: "paper-ruled", label: "Ruled paper", checked: paperStyle === "ruled", onSelect: () => nb.setPaperStyle("ruled") },
+        { type: "action", id: "paper-grid", label: "Grid paper", checked: paperStyle === "grid", onSelect: () => nb.setPaperStyle("grid") },
+        { type: "divider", id: "v-d2" },
+        { type: "action", id: "zoom-in", label: "Zoom in", shortcut: "Ctrl+scroll", onSelect: () => canvasApi.current?.zoomIn() },
+        { type: "action", id: "zoom-out", label: "Zoom out", onSelect: () => canvasApi.current?.zoomOut() },
+        { type: "action", id: "zoom-fit", label: "Fit page width", onSelect: () => canvasApi.current?.zoomFit() },
+        { type: "divider", id: "v-d3" },
+        { type: "action", id: "ai-visible", label: "Show AI layer", checked: aiVisible, disabled: aiCount === 0, onSelect: () => nb.setAILayerVisible(!aiVisible) },
+        { type: "action", id: "ai-clear", label: "Clear AI content on this page", disabled: aiCount === 0, onSelect: nb.clearAIContent },
+      ],
+    },
+    {
+      id: "settings",
+      label: "Settings",
+      items: [
+        { type: "action", id: "voice", label: "Voice assistant", shortcut: "Ctrl+M", checked: voice.on, disabled: !voice.supported.recognition, onSelect: voice.toggle },
+        ...(voice.supported.recognition
+          ? []
+          : [{ type: "note" as const, id: "voice-unsupported", label: "Voice needs Chrome or Edge" }]),
+        { type: "divider", id: "s-d1" },
+        { type: "note", id: "storage", label: "Local storage", text: nb.storageAvailable ? "On — notes stay on this device" : "Unavailable — export a backup" },
+      ],
+    },
+    {
+      id: "help",
+      label: "Help",
+      items: [
+        { type: "note", id: "h-tools", label: "Tools", text: "P pen · H highlighter · E eraser · S select · L lasso" },
+        { type: "note", id: "h-edit", label: "Edit", text: "Ctrl+Z undo · Ctrl+Y redo · Del delete · Esc deselect" },
+        { type: "note", id: "h-view", label: "View", text: "Ctrl+scroll zoom · Ctrl+M voice" },
+        { type: "divider", id: "h-d1" },
+        { type: "note", id: "h-say", label: "Say", text: "“check my work” · “finish this” · “hint” · “graph this” · “explain this” · “undo” · “new page”" },
+        { type: "divider", id: "h-d2" },
+        { type: "note", id: "h-about", label: "Margin AI", text: "A handwriting notebook with a voice math tutor" },
+      ],
+    },
+  ];
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-white">
+      {/* Hidden pickers backing the File menu (kept at app level so they
+          exist regardless of which menu view is showing). */}
+      <input
+        ref={pdfInputRef}
+        type="file"
+        accept="application/pdf,.pdf"
+        aria-label="Import PDF"
+        className="sr-only"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (f) void importPdf(f);
+        }}
+      />
+      <input
+        ref={jsonInputRef}
+        type="file"
+        accept=".json"
+        aria-label="Import notebook (.json)"
+        className="sr-only"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (f) void importNotebookJson(f);
+        }}
+      />
       <Toolbar
         title={nb.notebook?.title ?? ""}
         tool={nb.tool}
         color={nb.color}
         strokeWidth={nb.strokeWidth}
-        paperStyle={nb.page?.paperStyle ?? "ruled"}
         canUndo={nb.canUndo}
         canRedo={nb.canRedo}
         saveStatus={nb.saveStatus}
         sidebarOpen={sidebarOpen}
+        menus={menus}
+        onOpenAppMenu={() => setMenuOpen(true)}
         onRename={nb.renameNotebook}
         onTool={nb.setTool}
         onColor={nb.setColor}
         onWidth={nb.setStrokeWidth}
-        onPaperStyle={nb.setPaperStyle}
         onUndo={nb.undo}
         onRedo={nb.redo}
         onAddPage={nb.addPage}
         onToggleSidebar={() => setSidebarOpen((o) => !o)}
-        onExport={nb.exportNotebook}
-        onImportPdf={importPdf}
-        pdfBusy={pdfBusy}
-        aiCount={aiLayerOnPage?.elements.length ?? 0}
-        aiVisible={aiLayerOnPage?.visible ?? true}
-        onToggleAI={() => nb.setAILayerVisible(!(aiLayerOnPage?.visible ?? true))}
-        onClearAI={nb.clearAIContent}
       />
 
       {!nb.storageAvailable && (
@@ -175,10 +281,10 @@ export default function NotebookApp() {
         />
 
         <main className="relative min-w-0 flex-1">
-          {pdfError && (
+          {importError && (
             <div role="alert" className="absolute left-1/2 top-3 z-10 flex -translate-x-1/2 items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-800 shadow-sm">
-              {pdfError}
-              <button type="button" aria-label="Dismiss" onClick={() => setPdfError(null)} className="rounded px-1 hover:bg-red-100">✕</button>
+              {importError}
+              <button type="button" aria-label="Dismiss" onClick={() => setImportError(null)} className="rounded px-1 hover:bg-red-100">✕</button>
             </div>
           )}
           {voice.state === "thinking" && (
@@ -202,6 +308,7 @@ export default function NotebookApp() {
               onEraseEnd={nb.endErase}
               onSelectRect={nb.selectInRect}
               onSelectLasso={nb.selectInLasso}
+              apiRef={canvasApi}
             />
           ) : (
             <div className="flex h-full items-center justify-center text-sm text-neutral-400">
@@ -218,6 +325,7 @@ export default function NotebookApp() {
           toast={voice.toast}
           toggle={voice.toggle}
         />
+        <MobileSheet menus={menus} open={menuOpen} onClose={closeMenu} />
       </div>
 
       {nb.selectedIds.length > 0 && (

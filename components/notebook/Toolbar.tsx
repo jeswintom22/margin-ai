@@ -1,7 +1,9 @@
 "use client";
 
-import type { EditorTool, PaperStyle } from "@/lib/document/types";
+import type { EditorTool } from "@/lib/document/types";
 import type { SaveStatus } from "@/hooks/useNotebook";
+import type { MenuSection } from "@/components/menu/menuModel";
+import MenuBar from "@/components/menu/MenuBar";
 
 /** Xournal++-style palette: the app's own colors plus the common pickers. */
 const COLORS = ["#1a1a1a", "#d92626", "#e6a100", "#1a8f4a", "#1d6fd8", "#7c3aed", "#ffffff"];
@@ -12,28 +14,21 @@ type Props = {
   tool: EditorTool;
   color: string;
   strokeWidth: number;
-  paperStyle: PaperStyle;
   canUndo: boolean;
   canRedo: boolean;
   saveStatus: SaveStatus;
   sidebarOpen: boolean;
+  /** App menu tree (File/View/Settings/Help) rendered by MenuBar/MobileSheet. */
+  menus: MenuSection[];
+  onOpenAppMenu: () => void;
   onRename: (t: string) => void;
   onTool: (t: EditorTool) => void;
   onColor: (c: string) => void;
   onWidth: (w: number) => void;
-  onPaperStyle: (s: PaperStyle) => void;
   onUndo: () => void;
   onRedo: () => void;
   onAddPage: () => void;
   onToggleSidebar: () => void;
-  onExport: () => void;
-  onImportPdf: (file: File) => void;
-  pdfBusy: boolean;
-  /** Number of AI elements on the current page; AI controls show only when > 0. */
-  aiCount: number;
-  aiVisible: boolean;
-  onToggleAI: () => void;
-  onClearAI: () => void;
 };
 
 /** Classic toolbar icon button (icon-only, tooltip, like Xournal++). */
@@ -78,9 +73,7 @@ const ICONS = {
   undo: "M9 14 4 9l5-5M4 9h9a7 7 0 0 1 0 14h-3",
   redo: "m15 14 5-5-5-5M20 9h-9a7 7 0 0 0 0 14h3",
   page: "M6 3h9l4 4v14H6zM15 3v4h4",
-  pdf: "M6 3h9l4 4v14H6zM15 3v4h4M9 14h6M9 17h6",
-  download: "M12 4v12m0 0 5-5m-5 5-5-5M5 20h14",
-  sparkles: "M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8L12 3z",
+  kebab: "M12 5.5h.01M12 12h.01M12 18.5h.01",
 };
 
 const statusText: Record<SaveStatus, string> = {
@@ -93,8 +86,6 @@ const statusText: Record<SaveStatus, string> = {
 const Sep = () => <div className="mx-1 h-6 w-px bg-neutral-300" aria-hidden />;
 
 export default function Toolbar(p: Props) {
-  const textBtn =
-    "flex h-9 items-center gap-1.5 rounded-md px-2.5 text-[13px] text-neutral-700 transition-colors hover:bg-neutral-200/70 disabled:opacity-40";
   return (
     <header className="flex h-14 shrink-0 items-center gap-1 border-b border-neutral-300 bg-[#f5f5f4] px-2 sm:px-3">
       <button
@@ -106,6 +97,7 @@ export default function Toolbar(p: Props) {
       >
         <I d={ICONS.menu} />
       </button>
+      <MenuBar menus={p.menus} />
       <input
         aria-label="Notebook title"
         className="w-28 shrink truncate rounded-md border border-transparent bg-transparent px-2 py-1 text-sm font-semibold text-neutral-800 hover:border-neutral-300 hover:bg-white focus:border-blue-400 focus:bg-white focus:outline-none lg:w-44"
@@ -162,65 +154,11 @@ export default function Toolbar(p: Props) {
             </button>
           ))}
         </div>
-        <Sep />
-
-        <select
-          aria-label="Paper style"
-          title="Paper style"
-          className="h-8 rounded-md border border-neutral-300 bg-white px-1.5 text-xs text-neutral-700"
-          value={p.paperStyle}
-          onChange={(e) => p.onPaperStyle(e.target.value as PaperStyle)}
-        >
-          <option value="blank">Blank</option>
-          <option value="ruled">Ruled</option>
-          <option value="grid">Grid</option>
-        </select>
       </div>
 
       <div className="flex-1" />
 
-      {p.aiCount > 0 && (
-        <div className="flex items-center" role="group" aria-label="AI content on this page">
-          <button
-            type="button"
-            onClick={p.onToggleAI}
-            aria-pressed={p.aiVisible}
-            title={p.aiVisible ? "Hide AI content on this page" : "Show AI content on this page"}
-            className={`${textBtn} text-blue-700`}
-          >
-            <I d={ICONS.sparkles} className="h-4 w-4" />
-            <span className="hidden xl:inline">{p.aiVisible ? "AI: shown" : "AI: hidden"}</span>
-            <span className="sr-only xl:hidden">{p.aiVisible ? "AI: shown" : "AI: hidden"}</span>
-          </button>
-          <button type="button" onClick={p.onClearAI} className={textBtn}
-            title="Remove AI content from this page (undoable; your ink is untouched)">
-            Clear AI
-          </button>
-        </div>
-      )}
-      <Sep />
       <TB title="Add page" label="+ Page" onClick={p.onAddPage}><I d={ICONS.page} /></TB>
-      <label
-        title="Import a PDF: each page becomes a notebook page with the PDF as a locked background"
-        className={`hidden h-9 w-9 cursor-pointer items-center justify-center rounded-md text-neutral-700 transition-colors hover:bg-neutral-200/70 sm:flex ${p.pdfBusy ? "pointer-events-none opacity-50" : ""}`}
-      >
-        {p.pdfBusy ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-700" /> : <I d={ICONS.pdf} />}
-        <input
-          type="file"
-          accept="application/pdf,.pdf"
-          aria-label="Import PDF"
-          className="sr-only"
-          disabled={p.pdfBusy}
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            e.target.value = "";
-            if (f) p.onImportPdf(f);
-          }}
-        />
-      </label>
-      <span className="hidden sm:block">
-        <TB title="Export notebook as JSON" label="Export" onClick={p.onExport}><I d={ICONS.download} /></TB>
-      </span>
       <span
         role="status"
         aria-live="polite"
@@ -228,6 +166,16 @@ export default function Toolbar(p: Props) {
       >
         {statusText[p.saveStatus]}
       </span>
+      <button
+        type="button"
+        id="app-menu-btn"
+        aria-label="Menu"
+        title="Menu"
+        onClick={p.onOpenAppMenu}
+        className="flex h-9 w-9 items-center justify-center rounded-md text-neutral-700 transition-colors hover:bg-neutral-200/70 sm:hidden"
+      >
+        <I d={ICONS.kebab} className="h-5 w-5" />
+      </button>
     </header>
   );
 }

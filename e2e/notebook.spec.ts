@@ -64,6 +64,12 @@ async function askAndInsert(page: Page, text = "Explain something") {
 const undo = (page: Page) => page.getByRole("button", { name: "Undo (Ctrl+Z)" }).click();
 const redo = (page: Page) => page.getByRole("button", { name: "Redo (Ctrl+Y)" }).click();
 
+/** Open a menubar menu and click an item by its visible text. */
+async function menuItem(page: Page, menu: string, name: string | RegExp) {
+  await page.getByRole("button", { name: menu, exact: true }).click();
+  await page.getByRole("menu", { name: menu }).getByText(name).click();
+}
+
 test("A: drawing, undo/redo, erase and undo erase", async ({ page }) => {
   await open(page);
   await page.getByRole("button", { name: "Pen (P)" }).click();
@@ -124,7 +130,7 @@ test("C: ink, AI content, page order and AI visibility persist across reload", a
   await page.getByRole("button", { name: "Pen (P)" }).click();
   await drawLine(page, 0.9);
   await askAndInsert(page);
-  await page.getByRole("button", { name: "AI: shown" }).click();
+  await menuItem(page, "View", "Show AI layer");
   await expect(canvas(page)).toHaveAttribute("data-ai-visible", "false");
   await page.getByRole("button", { name: "+ Page" }).click();
   await pages(page).nth(0).getByRole("button").first().click();
@@ -148,7 +154,7 @@ test("D: hide/show and clear AI content with undo/redo; user ink untouched", asy
   await askAndInsert(page);
   const ai = await attr(page, "data-ai-elements");
 
-  await page.getByRole("button", { name: "AI: shown" }).click();
+  await menuItem(page, "View", "Show AI layer");
   await expect(canvas(page)).toHaveAttribute("data-ai-visible", "false");
   await expect(canvas(page)).toHaveAttribute("data-ai-elements", ai!);
   await expect(canvas(page)).toHaveAttribute("data-user-strokes", "1");
@@ -156,10 +162,10 @@ test("D: hide/show and clear AI content with undo/redo; user ink untouched", asy
   await expect(canvas(page)).toHaveAttribute("data-ai-visible", "true");
   await redo(page);
   await expect(canvas(page)).toHaveAttribute("data-ai-visible", "false");
-  await page.getByRole("button", { name: "AI: hidden" }).click();
+  await menuItem(page, "View", "Show AI layer");
   await expect(canvas(page)).toHaveAttribute("data-ai-visible", "true");
 
-  await page.getByRole("button", { name: "Clear AI" }).click();
+  await menuItem(page, "View", "Clear AI content");
   await expect(canvas(page)).toHaveAttribute("data-ai-elements", "0");
   await expect(canvas(page)).toHaveAttribute("data-user-strokes", "1");
   await undo(page);
