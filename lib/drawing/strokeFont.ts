@@ -113,11 +113,64 @@ export function hasGlyph(ch: string): boolean {
   return glyphFor(ch) !== null;
 }
 
+// ---------- handwriting profile (learned from the user's ink) ----------
+
+/** Style knobs mirroring the user's handwriting — see lib/drawing/handStyle.ts. */
+export type HandProfile = {
+  /** Shear coefficient — positive leans right, like the user's writing. */
+  slant: number;
+  /** Multiplies glyph advance widths (letter spacing). ~1.0. */
+  advanceFactor: number;
+  /** Scales wobble/rotation/size/baseline jitter amplitudes. ~1.0. */
+  looseness: number;
+  /** AI stroke width base, in document units. */
+  penWidth: number;
+  /** Synthesize ink taper along each stroke (user's pen reports pressure). */
+  pressure: boolean;
+  /** User's pressure range (p10 / p90), scales the taper. */
+  pressureLo: number;
+  pressureHi: number;
+  /** bodySize multiplier, applied at layout (frozen into element sizes). */
+  sizeFactor: number;
+};
+
+export const DEFAULT_PROFILE: HandProfile = {
+  slant: 0.09,
+  advanceFactor: 1,
+  looseness: 1,
+  penWidth: 2.2,
+  pressure: false,
+  pressureLo: 0.35,
+  pressureHi: 0.95,
+  sizeFactor: 1,
+};
+
+let current: HandProfile = DEFAULT_PROFILE;
+let profileRev = 0;
+
+/** Publish a new handwriting profile. Returns true when anything changed. */
+export function setHandProfile(p: HandProfile): boolean {
+  for (const k of Object.keys(DEFAULT_PROFILE) as (keyof HandProfile)[]) {
+    if (current[k] !== p[k]) {
+      current = { ...p };
+      profileRev++;
+      return true;
+    }
+  }
+  return false;
+}
+
+export function getHandProfile(): HandProfile {
+  return current;
+}
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
 /** Advance width of `text` at font size `size` (deterministic, no jitter). */
-export function measureStrokeText(text: string, size: number): number {
+export function measureStrokeText(text: string, size: number, profile: HandProfile = current): number {
   let w = 0;
-  for (const ch of text) w += (glyphFor(ch)?.a ?? FALLBACK_ADV) * size;
-  return w;
+  for (const ch of text) w += glyphFor(ch)?.a ?? FALLBACK_ADV;
+  return w * size * profile.advanceFactor;
 }
 
 // ---------- seeded jitter ----------
@@ -143,7 +196,6 @@ function mulberry32(seed: number) {
 }
 
 export const JITTER = {
-  slant: 0.09, // global forward lean (shear)
   baseline: 0.035, // ± em per glyph
   rotate: 0.045, // ± rad per glyph
   scale: 0.04, // ± fraction per glyph
@@ -163,9 +215,16 @@ export type StrokeText = {
  * Lay out `text` at (x, baseline y) and size `size` as jittered polylines.
  * Same (text, size, seed) → identical output.
  */
-export function strokeText(text: string, x: number, y: number, size: number, seed = ""): StrokeText {
+export function strokeText(
+  text: string,
+  x: number,
+  y: number,
+  size: number,
+  seed = "",
+  profile: HandProfile = current
+): StrokeText {
   const rnd = mulberry32(hashStr(`${seed}|${text}`));
-  const j = (amp: number) => (rnd() * 2 - 1) * amp;
+  const j = (amp: number) => (rnd() * 2 - 1) * amp * profile.looseness;
   const strokes: number[][] = [];
   const fallbacks: StrokeText["fallbacks"] = [];
   let pen = 0;
@@ -173,7 +232,7 @@ export function strokeText(text: string, x: number, y: number, size: number, see
     const g = glyphFor(ch);
     if (!g) {
       fallbacks.push({ ch, x: x + pen * size, y });
-      pen += FALLBACK_ADV;
+      pen += FALLBACK_ADV * profile.advanceFactor;
       continue;
     }
     const dy = j(JITTER.baseline);
@@ -189,25 +248,53 @@ export function strokeText(text: string, x: number, y: number, size: number, see
         [gx, gy] = [gx * cos - gy * sin, gx * sin + gy * cos];
         gx += cx + j(JITTER.wobble);
         gy += cy + dy + j(JITTER.wobble);
-        gx -= gy * JITTER.slant; // lean forward (gy < 0 above baseline)
+        gx -= gy * profile.slant; // lean like the user's hand (gy < 0 above baseline)
         out.push(x + (pen + gx) * size, y + gy * size);
       }
       if (out.length >= 2) strokes.push(out.length === 2 ? [out[0], out[1], out[0] + 0.01, out[1]] : out);
     }
-    pen += g.a + j(JITTER.advance);
+    pen += g.a * profile.advanceFactor + j(JITTER.advance);
   }
   return { strokes, fallbacks, width: pen * size };
 }
 
 // ---------- canvas drawing ----------
 
-/** Pen width for lettering at `size` (matches the feel of the user's pen). */
-export function strokeWidthFor(size: number, bold = false): number {
-  return Math.max(1, size * 0.08) * (bold ? 1.55 : 1);
+/** Pen width for lettering at `size` — follows the user's own pen weight. */
+export function strokeWidthFor(size: number, bold = false, profile: HandProfile = current): number {
+  return clamp(profile.penWidth, 1, 6) * (0.75 + 0.25 * (size / 17)) * (bold ? 1.45 : 1);
 }
 
 const cache = new Map<string, StrokeText>();
 const CACHE_MAX = 4000;
+
+/**
+ * Stroke one polyline with pressure-like taper: thin entry, full body,
+ * tapered exit — scaled to the user's measured pressure range.
+ */
+function drawTapered(ctx: CanvasRenderingContext2D, pl: number[], baseW: number, p: HandProfile) {
+  const n = pl.length / 2;
+  if (n < 2) return;
+  const denom = Math.max(1, n - 1);
+  const wAt = (u: number) => {
+    const shape = clamp(Math.min(u / 0.15, (1 - u) / 0.15), 0.25, 1);
+    return baseW * (0.5 + 0.7 * (p.pressureLo + (p.pressureHi - p.pressureLo) * shape));
+  };
+  let startPt = 0;
+  let runW = wAt(0.5 / denom);
+  for (let s = 1; s <= n - 1; s++) {
+    const w = wAt((s - 0.5) / denom);
+    if (s === n - 1 || Math.abs(w - runW) / runW > 0.12 || s - startPt >= 6) {
+      ctx.beginPath();
+      ctx.moveTo(pl[startPt * 2], pl[startPt * 2 + 1]);
+      for (let k = startPt + 1; k <= s; k++) ctx.lineTo(pl[k * 2], pl[k * 2 + 1]);
+      ctx.lineWidth = runW;
+      ctx.stroke();
+      startPt = s;
+      runW = w;
+    }
+  }
+}
 
 /** Draw pen-stroke text on a 2D canvas. Results are cached per element. */
 export function drawStrokeText(
@@ -216,27 +303,33 @@ export function drawStrokeText(
   x: number,
   y: number,
   size: number,
-  opts: { color: string; bold?: boolean; seed?: string; fallbackFont: string }
+  opts: { color: string; bold?: boolean; seed?: string; fallbackFont: string; profile?: HandProfile }
 ) {
-  const key = `${opts.seed}|${text}|${x}|${y}|${size}`;
+  const profile = opts.profile ?? current;
+  const key = `${profileRev}|${opts.seed}|${text}|${x}|${y}|${size}`;
   let st = cache.get(key);
   if (!st) {
-    st = strokeText(text, x, y, size, opts.seed);
+    st = strokeText(text, x, y, size, opts.seed, profile);
     if (cache.size > CACHE_MAX) cache.clear();
     cache.set(key, st);
   }
   ctx.save();
   ctx.strokeStyle = opts.color;
   ctx.fillStyle = opts.color;
-  ctx.lineWidth = strokeWidthFor(size, opts.bold);
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-  ctx.beginPath();
-  for (const pl of st.strokes) {
-    ctx.moveTo(pl[0], pl[1]);
-    for (let i = 2; i + 1 < pl.length; i += 2) ctx.lineTo(pl[i], pl[i + 1]);
+  if (profile.pressure) {
+    const baseW = strokeWidthFor(size, opts.bold, profile);
+    for (const pl of st.strokes) drawTapered(ctx, pl, baseW, profile);
+  } else {
+    ctx.lineWidth = strokeWidthFor(size, opts.bold, profile);
+    ctx.beginPath();
+    for (const pl of st.strokes) {
+      ctx.moveTo(pl[0], pl[1]);
+      for (let i = 2; i + 1 < pl.length; i += 2) ctx.lineTo(pl[i], pl[i + 1]);
+    }
+    ctx.stroke();
   }
-  ctx.stroke();
   if (st.fallbacks.length) {
     ctx.font = `${opts.bold ? "700 " : ""}${size}px ${opts.fallbackFont}`;
     ctx.textBaseline = "alphabetic";
