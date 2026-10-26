@@ -152,7 +152,8 @@ test("voice walkthrough: check, wrong line, finish, hint, graph, PDF, reload, ex
 
   // h. export JSON and re-import it: identical structure
   const download = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Export" }).click();
+  await page.getByRole("button", { name: "File", exact: true }).click();
+  await page.getByRole("menu", { name: "File" }).getByText(/Export notebook/).click();
   const file = await (await download).path();
   const exported = JSON.parse(readFileSync(file!, "utf8"));
   expect(exported.notebook.schemaVersion).toBe(3);
@@ -162,11 +163,18 @@ test("voice walkthrough: check, wrong line, finish, hint, graph, PDF, reload, ex
   await pages(page).nth(1).getByRole("button").first().click();
   await expect(canvas(page)).toHaveAttribute("data-has-background", "true");
 
-  // i. narrow viewport: no horizontal overflow, canvas usable
+  // i. narrow viewport: no horizontal overflow, canvas usable, mobile menu sheet works
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(canvas(page)).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(1);
+  await page.getByRole("button", { name: "Menu" }).click();
+  const sheet = page.getByRole("dialog", { name: "Menu" });
+  await expect(sheet).toBeVisible();
+  await sheet.getByRole("button", { name: "View" }).click();
+  await expect(sheet.getByText("Fit page width")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(sheet).toHaveCount(0);
 
   expect(problems).toEqual([]);
 });

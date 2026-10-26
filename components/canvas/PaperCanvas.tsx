@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useEffect, useRef, useCallback, useImperativeHandle, useState, type RefObject } from "react";
 import type { NotebookPage, Point, Stroke } from "@/lib/document/types";
 import { onBackgroundLoaded, renderPage } from "@/lib/drawing/render";
 import { clientToPage, fitWidthScale, maxScroll, pageOffset, PAGE_GAP } from "@/lib/drawing/coords";
@@ -22,9 +22,19 @@ type Props = {
   onEraseEnd: () => void;
   onSelectRect: (rect: Rect) => void;
   onSelectLasso: (poly: Point[]) => void;
+  /** Filled with the zoom commands on mount; null on unmount/page switch. */
+  apiRef?: RefObject<PaperCanvasApi | null>;
 };
 
 const ERASER_RADIUS = 14;
+
+/** Commands the app menu can send into the canvas's internal view state. */
+export type PaperCanvasApi = {
+  zoomIn(): void;
+  zoomOut(): void;
+  /** Reset to fit-page-width at the top of the page. */
+  zoomFit(): void;
+};
 
 /**
  * Drawing surface. Pointer lifecycle lives in a CanvasGesture state machine;
@@ -34,6 +44,7 @@ const ERASER_RADIUS = 14;
 export default function PaperCanvas({
   page, tool, color, strokeWidth, version, selectedIds,
   onCommitStroke, onEraseBegin, onEraseAt, onEraseEnd, onSelectRect, onSelectLasso,
+  apiRef,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -115,6 +126,20 @@ export default function PaperCanvas({
     setZoomPct(Math.round(zoomRef.current * 100));
     dirty.current = true;
   }, [page.width, page.height, resize, clampScroll]);
+
+  // App-menu zoom commands reach the same code path as the on-canvas control.
+  useImperativeHandle(
+    apiRef,
+    (): PaperCanvasApi => ({
+      zoomIn: () => setZoom(zoomRef.current * 1.2),
+      zoomOut: () => setZoom(zoomRef.current / 1.2),
+      zoomFit: () => {
+        scrollRef.current = 0;
+        setZoom(1);
+      },
+    }),
+    [setZoom]
+  );
 
   const toPage = useCallback((clientX: number, clientY: number): Point => {
     const rect = canvasRef.current!.getBoundingClientRect();

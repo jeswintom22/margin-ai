@@ -36,6 +36,18 @@ body {
   font-weight: 700;
 }
 
+/* Menu entrances (neutralized by the reduced-motion rule below). */
+@keyframes menu-pop {
+  from { transform: translateY(-4px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+@keyframes sheet-up {
+  from { transform: translateY(24px); opacity: 0.6; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.menu-pop { animation: menu-pop 0.12s ease-out; }
+.sheet-up { animation: sheet-up 0.18s ease-out; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
