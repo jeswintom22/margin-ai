@@ -1,4 +1,5 @@
 import { newId, PAGE_HEIGHT, PAGE_WIDTH, type PageElement } from "@/lib/document/types";
+import { measureStrokeText } from "@/lib/drawing/strokeFont";
 import type { AnswerBlock, AnswerDocument, ListItem } from "./answerSchema";
 import { toUnicodeMath, formatMathInText } from "@/lib/math/unicodeMath";
 import { layoutMath2D } from "@/lib/math/layoutMath2D";
@@ -35,15 +36,11 @@ export type ElementInput = PageElement extends infer U
   ? U extends PageElement ? Omit<U, "id" | "groupId"> : never
   : never;
 
-// Approximate em-widths (avg for Kalam ~0.5; mono fixed 0.62). Deterministic.
-const WIDE = "mwMW@#%&";
-const NARROW = "ilIjJ.,;:'\"!|()[]{} ";
+// Mono keeps a fixed em table; "hand" text measures its real glyph advances so
+// wrapping matches what drawStrokeText actually renders. Deterministic.
 export function measureText(text: string, size: number, mono = false): number {
-  let units = 0;
-  for (const ch of text) {
-    units += mono ? 0.62 : WIDE.includes(ch) ? 0.82 : NARROW.includes(ch) ? 0.3 : 0.5;
-  }
-  return units * size;
+  if (mono) return text.length * 0.62 * size;
+  return measureStrokeText(text, size);
 }
 
 export function wrapText(text: string, maxWidth: number, size: number, mono = false): string[] {
