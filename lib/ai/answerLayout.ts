@@ -77,16 +77,20 @@ class Layouter {
   left: number = LAYOUT.marginX;
   width: number;
   inkColor: string;
+  /** Body text size — the user's letter-size factor applied to the nominal. */
+  bodySize: number;
 
   constructor(
     private doc: AnswerDocument,
     private groupId: string,
     private pageW: number,
     private pageH: number,
-    inkColor = AI_INK
+    inkColor = AI_INK,
+    sizeFactor = 1
   ) {
     this.width = pageW - LAYOUT.marginX * 2;
     this.inkColor = inkColor;
+    this.bodySize = LAYOUT.bodySize * Math.min(2, Math.max(0.5, sizeFactor));
   }
 
   private emit(el: ElementInput) {
@@ -138,12 +142,12 @@ class Layouter {
       const bullet = numbered ? `${i + 1}.` : "•";
       const x = this.left + depth * LAYOUT.indent;
       const tx = x + LAYOUT.indent;
-      const lh = LAYOUT.bodySize * LAYOUT.lineHeight;
-      const lines = wrapText(formatMathInText(item.text), this.left + this.width - tx, LAYOUT.bodySize);
+      const lh = this.bodySize * LAYOUT.lineHeight;
+      const lines = wrapText(formatMathInText(item.text), this.left + this.width - tx, this.bodySize);
       lines.forEach((line, li) => {
         this.need(lh);
-        if (li === 0) this.text(bullet, x, this.y, LAYOUT.bodySize, "hand", false, blockId);
-        this.text(line, tx, this.y, LAYOUT.bodySize, "hand", false, blockId);
+        if (li === 0) this.text(bullet, x, this.y, this.bodySize, "hand", false, blockId);
+        this.text(line, tx, this.y, this.bodySize, "hand", false, blockId);
         this.y += lh;
       });
       if (item.children?.length) this.listItems(item.children, depth + 1, numbered, blockId);
@@ -157,12 +161,12 @@ class Layouter {
       case "heading": {
         const scale = S.headingScale[Math.min(b.level, 3) - 1];
         this.gap(4);
-        this.paragraph(formatMathInText(b.text), x0, LAYOUT.bodySize * scale, "hand", true, b.id);
+        this.paragraph(formatMathInText(b.text), x0, this.bodySize * scale, "hand", true, b.id);
         this.gap(2);
         break;
       }
       case "paragraph":
-        this.paragraph(formatMathInText(b.text), x0, S.bodySize, "hand", false, b.id);
+        this.paragraph(formatMathInText(b.text), x0, this.bodySize, "hand", false, b.id);
         this.gap();
         break;
       case "list":
@@ -170,18 +174,18 @@ class Layouter {
         this.gap();
         break;
       case "callout": {
-        const lines = wrapText(formatMathInText(b.text), this.usableW - S.calloutPad * 2 - 14, S.bodySize);
-        const h = lines.length * S.bodySize * S.lineHeight + S.calloutPad * 2;
+        const lines = wrapText(formatMathInText(b.text), this.usableW - S.calloutPad * 2 - 14, this.bodySize);
+        const h = lines.length * this.bodySize * S.lineHeight + S.calloutPad * 2;
         this.need(h);
         const top = this.y;
         const fill = b.kind === "warning" ? "#fef3c7" : b.kind === "tip" ? "#dcfce7" : "#dbeafe";
         const stroke = b.kind === "warning" ? "#d97706" : b.kind === "tip" ? "#16a34a" : "#2563eb";
         this.emit({ type: "rect", x: x0, y: top, w: this.usableW, h, fill, stroke, blockId: b.id });
         this.emit({ type: "line", x1: x0, y1: top, x2: x0, y2: top + h, width: 3, color: stroke, blockId: b.id });
-        this.y = top + S.calloutPad + S.bodySize * 0.75;
+        this.y = top + S.calloutPad + this.bodySize * 0.75;
         for (const line of lines) {
-          this.text(line, x0 + S.calloutPad + 10, this.y, S.bodySize, "hand", false, b.id);
-          this.y += S.bodySize * S.lineHeight;
+          this.text(line, x0 + S.calloutPad + 10, this.y, this.bodySize, "hand", false, b.id);
+          this.y += this.bodySize * S.lineHeight;
         }
         this.y = top + h;
         this.gap();
@@ -192,12 +196,12 @@ class Layouter {
         const steps = b.type === "math" ? [{ latex: b.latex }] : b.steps;
         for (const s of steps) {
           const mathBox = layoutMath2D(s.latex, {
-            size: S.bodySize * 1.1,
+            size: this.bodySize * 1.1,
             color: this.inkColor,
             blockId: b.id,
           });
           const totalH = mathBox.ascent + mathBox.descent;
-          this.need(totalH + S.bodySize * 0.4);
+          this.need(totalH + this.bodySize * 0.4);
 
           // Center horizontally within usable width, scale down slightly if very wide
           const maxAllowedW = this.usableW - 16;
@@ -235,17 +239,17 @@ class Layouter {
               });
             }
           }
-          this.y = baselineY + mathBox.descent * scale + S.bodySize * 0.6;
+          this.y = baselineY + mathBox.descent * scale + this.bodySize * 0.6;
 
           if ("note" in s && s.note) {
-            this.paragraph(`(${formatMathInText(s.note)})`, x0 + 40, S.bodySize * 0.85, "hand", false, b.id, "#64748b");
+            this.paragraph(`(${formatMathInText(s.note)})`, x0 + 40, this.bodySize * 0.85, "hand", false, b.id, "#64748b");
           }
         }
         this.gap();
         break;
       }
       case "definition":
-        this.paragraph(formatMathInText(`${b.term} — ${b.definition}`), x0, S.bodySize, "hand", false, b.id);
+        this.paragraph(formatMathInText(`${b.term} — ${b.definition}`), x0, this.bodySize, "hand", false, b.id);
         this.gap();
         break;
       case "code": {
@@ -265,14 +269,14 @@ class Layouter {
         if (rect?.type === "rect") rect.h = this.y + S.codePadY - S.codeSize * 0.4 - top;
         if (b.explanation) {
           this.gap(2);
-          this.paragraph(formatMathInText(b.explanation), x0, S.bodySize * 0.9, "hand", false, b.id, "#475569");
+          this.paragraph(formatMathInText(b.explanation), x0, this.bodySize * 0.9, "hand", false, b.id, "#475569");
         }
         this.gap();
         break;
       }
       case "steps": {
         if (b.title) {
-          this.paragraph(formatMathInText(b.title), x0, S.bodySize, "hand", true, b.id);
+          this.paragraph(formatMathInText(b.title), x0, this.bodySize, "hand", true, b.id);
         }
         this.listItems(b.items.map((t) => ({ text: formatMathInText(t) })), 0, true, b.id);
         this.gap();
@@ -289,8 +293,8 @@ class Layouter {
             const cell = formatMathInText(row[ci] ?? "");
             const rx = x0 + ci * colW;
             this.emit({ type: "rect", x: rx, y: top, w: colW, h: S.tableRowH, fill: ri === 0 ? "#e2e8f0" : undefined, stroke: "#cbd5e1", blockId: b.id });
-            const clipped = wrapText(cell, colW - S.tableCellPad * 2, S.bodySize * 0.8)[0] ?? "";
-            this.text(clipped, rx + S.tableCellPad, top + S.tableRowH * 0.65, S.bodySize * 0.8, "hand", ri === 0, b.id, "#0f172a");
+            const clipped = wrapText(cell, colW - S.tableCellPad * 2, this.bodySize * 0.8)[0] ?? "";
+            this.text(clipped, rx + S.tableCellPad, top + S.tableRowH * 0.65, this.bodySize * 0.8, "hand", ri === 0, b.id, "#0f172a");
           }
           this.y += S.tableRowH;
         }
@@ -314,14 +318,14 @@ class Layouter {
               this.emit({ type: "line", x1: sx(p.to.x), y1: sy(p.to.y), x2: sx(p.to.x - nx * 6 + ny * 3), y2: sy(p.to.y - ny * 6 - nx * 3), width: 2, color: "#334155", blockId: b.id });
             }
           } else if (p.type === "label") {
-            this.text(formatMathInText(p.text), sx(p.x), sy(p.y), S.bodySize * 0.8, "hand", false, b.id, "#334155");
+            this.text(formatMathInText(p.text), sx(p.x), sy(p.y), this.bodySize * 0.8, "hand", false, b.id, "#334155");
           } else {
             const rx = sx(p.x), ry = sy(p.y), rw = (p.w / 100) * this.usableW, rh = (p.h / 100) * boxH;
             this.emit({ type: "rect", x: rx, y: ry, w: rw, h: rh, fill: "#eff6ff", stroke: "#3b82f6", blockId: b.id });
             if (p.label) this.text(formatMathInText(p.label), rx + rw / 2 - measureText(p.label, 12) / 2, ry + rh / 2, 12, "hand", false, b.id, "#1e3a8a");
           }
         }
-        if (b.title) this.text(formatMathInText(b.title), x0, top + boxH + 14, S.bodySize * 0.8, "hand", false, b.id, "#64748b");
+        if (b.title) this.text(formatMathInText(b.title), x0, top + boxH + 14, this.bodySize * 0.8, "hand", false, b.id, "#64748b");
         this.y = top + boxH + (b.title ? 24 : 0);
         this.gap();
         break;
@@ -334,7 +338,7 @@ class Layouter {
           this.paragraph(
             `${mark} line ${l.lineIndex + 1}${v}${l.note ? ` — ${formatMathInText(l.note)}` : ""}${l.correction ? ` → ${toUnicodeMath(l.correction)}` : ""}`,
             x0,
-            S.bodySize,
+            this.bodySize,
             "hand",
             false,
             b.id,
@@ -348,11 +352,11 @@ class Layouter {
         this.graph(b);
         break;
       case "annotation": {
-        const lines = wrapText(`◈ ${formatMathInText(b.text)}`, this.usableW - 20, S.bodySize * 0.9);
+        const lines = wrapText(`◈ ${formatMathInText(b.text)}`, this.usableW - 20, this.bodySize * 0.9);
         for (const line of lines) {
-          this.need(S.bodySize * S.lineHeight);
-          this.text(line, x0 + 10, this.y, S.bodySize * 0.9, "hand", false, b.id, "#a16207");
-          this.y += S.bodySize * S.lineHeight;
+          this.need(this.bodySize * S.lineHeight);
+          this.text(line, x0 + 10, this.y, this.bodySize * 0.9, "hand", false, b.id, "#a16207");
+          this.y += this.bodySize * S.lineHeight;
         }
         this.gap(4);
         break;
@@ -362,14 +366,13 @@ class Layouter {
 
   /** Axes, ticks, sampled curves and legend — all computed, never model points. */
   private graph(b: Extract<AnswerBlock, { type: "graph" }>) {
-    const S = LAYOUT;
     const boxH = 200, w = Math.min(this.width, 420);
     const { curves, errors } = sampleCurves(b.expressions, b.xRange);
     const [y0, y1] = autoYRange(curves.map((c) => c.segments), b.yRange);
     const legendH = (curves.length + errors.length) * 16 + (b.title ? 20 : 0);
     this.need(boxH + legendH + 24);
     const left = this.left, top = this.y + (b.title ? 20 : 0);
-    if (b.title) this.text(formatMathInText(b.title), left, this.y + 14, S.bodySize * 0.9, "hand", true, b.id);
+    if (b.title) this.text(formatMathInText(b.title), left, this.y + 14, this.bodySize * 0.9, "hand", true, b.id);
     const [x0, x1] = b.xRange;
     const px = (x: number) => left + 30 + ((x - x0) / (x1 - x0)) * (w - 40);
     const py = (y: number) => top + boxH - 20 - ((y - y0) / (y1 - y0)) * (boxH - 30);
@@ -410,7 +413,7 @@ class Layouter {
   }
 
   run(): PageElement[][] {
-    this.paragraph(formatMathInText(this.doc.title), this.left, LAYOUT.bodySize * 1.4, "hand", true, "__title");
+    this.paragraph(formatMathInText(this.doc.title), this.left, this.bodySize * 1.4, "hand", true, "__title");
     this.emit({ type: "line", x1: this.left, y1: this.y - 6, x2: this.left + this.width, y2: this.y - 6, width: 1.5, color: this.inkColor, blockId: "__title" });
     this.gap();
     for (const b of this.doc.blocks) this.block(b);
@@ -436,12 +439,13 @@ export function layoutAnswer(
     startY?: number;
     region?: { x: number; y: number; width: number };
     inkColor?: string;
+    sizeFactor?: number;
   } = {}
 ): LayoutResult {
   const pageW = opts.pageWidth ?? PAGE_WIDTH;
   const pageH = opts.pageHeight ?? PAGE_HEIGHT;
   const groupId = newId();
-  const l = new Layouter(doc, groupId, pageW, pageH, opts.inkColor);
+  const l = new Layouter(doc, groupId, pageW, pageH, opts.inkColor, opts.sizeFactor);
   if (opts.region) {
     l.left = opts.region.x;
     l.width = opts.region.width;
@@ -477,7 +481,7 @@ function scaleElement(e: PageElement, s: number, ox: number, oy: number): PageEl
 export function layoutFitted(
   doc: AnswerDocument,
   region: { x: number; y: number; width: number },
-  opts: { pageWidth?: number; pageHeight?: number; inkColor?: string } = {}
+  opts: { pageWidth?: number; pageHeight?: number; inkColor?: string; sizeFactor?: number } = {}
 ): (LayoutResult & { scale: number }) | null {
   const pageH = opts.pageHeight ?? PAGE_HEIGHT;
   const y0 = Math.max(LAYOUT.marginTop, region.y);
@@ -504,7 +508,7 @@ const MIN_REGION_WIDTH = 220;
  */
 export function placeOnPage(
   doc: AnswerDocument,
-  opts: { pageWidth?: number; pageHeight?: number; startY?: number; inkColor?: string } = {}
+  opts: { pageWidth?: number; pageHeight?: number; startY?: number; inkColor?: string; sizeFactor?: number } = {}
 ): LayoutResult & { placement: Placement } {
   const pageW = opts.pageWidth ?? PAGE_WIDTH;
   const y = opts.startY && opts.startY > LAYOUT.marginTop ? opts.startY + LAYOUT.blockGap : LAYOUT.marginTop;
@@ -521,7 +525,7 @@ export function placeOnPage(
 export function placeNearSelection(
   doc: AnswerDocument,
   sel: { minX: number; minY: number; maxX: number; maxY: number },
-  opts: { pageWidth?: number; pageHeight?: number; startY?: number; inkColor?: string } = {}
+  opts: { pageWidth?: number; pageHeight?: number; startY?: number; inkColor?: string; sizeFactor?: number } = {}
 ): LayoutResult & { placement: Placement } {
   const pageW = opts.pageWidth ?? PAGE_WIDTH;
   const right = pageW - LAYOUT.marginX;

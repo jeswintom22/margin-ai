@@ -72,6 +72,15 @@ describe("layoutAnswer", () => {
       }
   });
 
+  it("applies sizeFactor to handwritten text sizes", () => {
+    const a = layoutAnswer(doc([para("size test")]));
+    const b = layoutAnswer(doc([para("size test")]), { sizeFactor: 1.4 });
+    const ta = a.pages[0].find((e) => e.type === "text" && e.text === "size test");
+    const tb = b.pages[0].find((e) => e.type === "text" && e.text === "size test");
+    if (ta?.type !== "text" || tb?.type !== "text") throw new Error("expected text elements");
+    expect(tb.size / ta.size).toBeCloseTo(1.4, 5);
+  });
+
   it("produces deterministic layout for identical input", () => {
     const a = layoutAnswer(doc([para("same input")]));
     const b = layoutAnswer(doc([para("same input")]));

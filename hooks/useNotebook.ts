@@ -22,6 +22,8 @@ import {
 import { NotebookHistory, type PageOperation, apply, applyInsertion, removeStrokes, EraseTransaction } from "@/lib/history/history";
 import type { ImportedPdfPage } from "@/lib/pdf/importPdf";
 import { placeNearSelection, placeOnPage, type Placement } from "@/lib/ai/answerLayout";
+import { analyzeHand } from "@/lib/drawing/handStyle";
+import { setHandProfile } from "@/lib/drawing/strokeFont";
 import { layoutCheckMarks, unionBounds } from "@/lib/ai/markLayout";
 import { strokeBounds } from "@/lib/drawing/geometry";
 import type { AnswerDocument } from "@/lib/ai/answerSchema";
@@ -71,6 +73,30 @@ export function useNotebook() {
     if (!notebook) return null;
     return notebook.pages.find((p) => p.id === activePageId) ?? notebook.pages[0] ?? null;
   }, [notebook, activePageId]);
+
+  // ---------- handwriting profile ----------
+
+  /**
+   * Style learned from the user's own pen ink across the whole notebook
+   * (last ~400 strokes). The doc mutates in place, so `version` is the
+   * recompute trigger; publishing bumps a repaint only when it changed.
+   */
+  const handProfile = useMemo(() => {
+    void version; // recompute whenever the document mutates
+    if (!notebook) return null;
+    const strokes: Stroke[] = [];
+    for (const p of notebook.pages)
+      for (const l of p.layers)
+        for (const s of l.strokes) if (s.author === "user") strokes.push(s);
+    return analyzeHand(strokes.slice(-400));
+  }, [version, notebook]);
+
+  useEffect(() => {
+    if (!handProfile || !setHandProfile(handProfile)) return;
+    // Repaint once the profile is live — deferred so the canvas draws with it.
+    const raf = requestAnimationFrame(() => bump());
+    return () => cancelAnimationFrame(raf);
+  }, [handProfile, bump]);
 
   /** Record a page-scoped op that has already been applied. */
   const recordPage = useCallback((pageId: string, op: PageOperation) => {
@@ -516,7 +542,13 @@ export function useNotebook() {
         const nearStrokes = near?.length ? page.layers.flatMap((l) => l.strokes).filter((s) => near.includes(s.id)) : [];
         // Match user's pen color: selected/near ink, else recent page ink, else active pen tool color
         const userInkColor = nearStrokes.at(-1)?.color ?? userLayer(page).strokes.at(-1)?.color ?? color;
-        const flowOpts = { pageWidth: page.width, pageHeight: page.height, startY: maxY || undefined, inkColor: userInkColor };
+        const flowOpts = {
+          pageWidth: page.width,
+          pageHeight: page.height,
+          startY: maxY || undefined,
+          inkColor: userInkColor,
+          sizeFactor: handProfile?.sizeFactor,
+        };
         const { pages: laidOut, groupId, placement } = nearStrokes.length
           ? placeNearSelection(doc, unionBounds(nearStrokes.map(strokeBounds)), flowOpts)
           : placeOnPage(doc, flowOpts);
@@ -543,7 +575,7 @@ export function useNotebook() {
         return { ok: false, error: "Could not lay out the answer" };
       }
     },
-    [page, mutate, color]
+    [page, mutate, color, handProfile]
   );
 
   /** Write check marks beside the selected lines (one undoable insertion). */
