@@ -91,6 +91,39 @@ The notebook remains usable on narrow screens with a collapsible, scrollable sid
   External API: one OpenAI-compatible chat completions provider of your choice (configured
   via `LLM_BASE_URL`), used only by the assistant. No datasets.
 
+## Margin v2 preview (`/v2`) — Xournal++-style editor rebuild
+
+A clean-room web re-implementation of Xournal++'s editor is being built at
+**http://localhost:3000/v2**, in phases. The classic app (with the voice
+tutor) stays at `/` until the AI is re-wired onto v2 (phase 4); then `/`
+switches over. v2 uses its own IndexedDB database (`margin-notebook-v4`),
+so its notebooks are separate. Classic `.json` exports import into v2 via
+File → Import.
+
+**Phase 1 (this release):**
+- Continuous vertical, horizontal and two-page layouts, virtualized for 200+ pages
+- Zoom: fit width, fit page, Ctrl+scroll, pinch
+- Pen with pressure and dashed/dash-dot/dotted styles; highlighter; three
+  erasers (standard split, whiteout, delete stroke) in three sizes; hand tool
+  (or hold Space)
+- Stylus eraser end erases; palm rejection (touch scrolls/pinches once a pen is
+  seen, configurable under Tools)
+- Undoable insert, duplicate, move and delete page
+- Page template dialog: A4/A5/Letter/Legal/custom, landscape, 8 backgrounds,
+  paper colors, apply to all
+- Notebook library, autosave, `.margin.json` export/import (with blobs)
+
+**Not yet in v2:** selection, layers panel, text/shapes/images/LaTeX, voice AI,
+PDF, `.xopp`, audio, preferences and toolbar customization (phases 2–7).
+
+v2 code: `lib/xdoc/` (document model v4, points as units), `lib/engine/`
+(Editor core, command history, geometry, input policy, tools, layout,
+renderer), `lib/store/` (IndexedDB v4 + blobs), `lib/io/` (file format,
+legacy importer), `components/editor/`, `hooks/useSession.ts`,
+`hooks/useEditor.ts`. Tests: `tests/v2/` (unit) and `e2e/v2.spec.ts`,
+which includes a 200-page benchmark that logs import, reopen, scroll and
+inking frame times.
+
 ## Assistant request protection and production deployment
 
 `POST /api/ask` still returns `{ answer }` or `{ error }`. Questions remain limited
